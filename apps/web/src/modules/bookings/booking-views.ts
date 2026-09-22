@@ -57,6 +57,7 @@ export type BookingRecord = {
   plannedMoveIn?: Date | null;
   policy: { acceptedAt: Date; source?: string; version: string };
   receiptNumber?: string | null;
+  softmatoInvoiceNo?: string | null;
   refundAccount: {
     bankName?: string;
     branch?: string;

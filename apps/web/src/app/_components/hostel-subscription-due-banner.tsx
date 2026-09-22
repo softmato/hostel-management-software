@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertTriangle, Clock, QrCode, X } from "lucide-react";
+import { AlertTriangle, Clock, Lock, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { useCheckoutHandoff } from "@/app/_components/checkout-handoff";
 import { browserApi } from "@/lib/browser-api";
 import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
 
@@ -19,14 +20,12 @@ import { hostelDaysBetween } from "@hostel/shared/calendar/bs";
  * So the reminder has to be somewhere they cannot miss on the way to doing
  * something else, which is the top of every screen.
  *
- * ## The button navigates; it does not pay
+ * ## The button opens a checkout; it never records a payment
  *
- * It used to. `Pay now` posted `{ action: "open" }` and then, on a second
- * press, `{ action: "confirm" }` — and the route behind it had dropped both
- * branches when settlement moved to a verified webhook, so the pair opened two
- * checkouts and told the owner their payment was recorded. **A browser cannot
- * record a payment.** The banner is a reminder now and nothing more: it points
- * at Plan billing, where the QR and the proof form live.
+ * `Pay now` hands the owner to Softmato checkout (`checkout-handoff`), and the
+ * money is confirmed by Softmato's webhook or the return page's server-side
+ * read. **A browser cannot record a payment** — an earlier version of this
+ * button "confirmed" one on a second press, and told the owner so.
  *
  * ## It knows when a claim is already in review
  *
@@ -74,6 +73,7 @@ function daysUntil(iso: string) {
 export function HostelSubscriptionDueBanner() {
   const [state, setState] = useState<State | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const handoff = useCheckoutHandoff();
 
   useEffect(() => {
     async function load() {
@@ -136,22 +136,34 @@ export function HostelSubscriptionDueBanner() {
         </p>
 
         {/*
-          A link, not a form. Paying is four steps — read the amount, scan our
-          QR, pay in another app, send the proof back — and a banner is the
-          wrong object to carry any of them. Plan billing already holds all
-          four, so this is the shortest honest route to them.
+          Paying is one press now: Softmato checkout opens straight from here.
+          A proof already in review still links to billing to see its status.
         */}
-        <Link
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-warning px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
-          href="/hostel-admin/billing"
-        >
-          {reviewing ? (
+        {reviewing ? (
+          <Link
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-warning px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+            href="/hostel-admin/billing"
+          >
             <Clock className="size-3.5" />
-          ) : (
-            <QrCode className="size-3.5" />
-          )}
-          {reviewing ? "See the status" : "Pay now"}
-        </Link>
+            See the status
+          </Link>
+        ) : (
+          <button
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-warning px-3 py-1.5 text-xs font-bold text-white transition hover:brightness-110 disabled:opacity-60"
+            disabled={handoff.busy}
+            onClick={() =>
+              void handoff.start({
+                endpoint: "/api/v1/hostel-admin/billing/checkout",
+                preparing: "Setting up your plan payment",
+              })
+            }
+            type="button"
+          >
+            <Lock className="size-3.5" />
+            Pay now
+          </button>
+        )}
+        {handoff.overlay}
 
         <button
           aria-label="Hide until next visit"

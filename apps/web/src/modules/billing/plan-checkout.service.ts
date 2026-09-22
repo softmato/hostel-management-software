@@ -144,7 +144,7 @@ async function signCheckoutToken(hostelId: string, ownerId: string) {
     .sign(jwtSecret("JWT_ACCESS_SECRET"));
 }
 
-async function readCheckoutToken(token: string) {
+export async function readCheckoutToken(token: string) {
   try {
     const { payload } = await jwtVerify(token, jwtSecret("JWT_ACCESS_SECRET"));
 
@@ -185,6 +185,7 @@ async function paymentState(hostelId: string) {
 export async function runPlanCheckout(
   input: PlanCheckoutInput,
   context?: { ipAddress?: string; userAgent?: string },
+  step?: (name: "invoice" | "session") => void,
 ) {
   await connectToDatabase();
 
@@ -302,7 +303,7 @@ export async function runPlanCheckout(
     case "pay": {
       const { hostelId, ownerId } = await readCheckoutToken(input.token);
 
-      return openSubscriptionCheckout(await invoiceIdFor(hostelId), ownerId);
+      return openSubscriptionCheckout(await invoiceIdFor(hostelId), ownerId, step);
     }
 
     case "claim": {

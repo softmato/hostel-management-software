@@ -227,19 +227,18 @@ export const teamHostelRegistrationSchema = registrationFields
       /** Whole rupees actually taken. Zero means nothing was collected. */
       amount: z.coerce.number().int().min(0).max(10_000_000),
       /**
-       * Both methods settle on submission, and both settle for the amount the
-       * agent typed.
-       *
-       * `CASH` is money in the agent's hand. `SOFTMATO` is a QR the owner
-       * scanned while the agent watched — see the note on the QR step in
-       * `TEAM_REGISTRATION_UPGRADE.md` for what that trades away and why it is
-       * acceptable while the gateway is mocked. The method is still recorded
-       * because it decides who is answerable for the money: cash is on the
-       * agent until they bank it, a transfer is not.
+       * `CASH` is filed with Softmato as a claim for the amount the agent typed
+       * and books when their admin confirms it. `SOFTMATO` records nothing
+       * here: the owner pays through Softmato checkout straight after. So an
+       * online choice always arrives with a zero amount, checked below before
+       * anything is written rather than halfway through the registration.
        */
       method: z.enum(["SOFTMATO", "CASH"]),
-      /** A slip number or transaction id the agent wrote down. */
+      /** A slip number the agent wrote down. */
       reference: z.string().trim().max(120).optional(),
+    }).refine((payment) => payment.method === "CASH" || payment.amount === 0, {
+      message: "Online payments are made through Softmato checkout, not typed in.",
+      path: ["amount"],
     }),
     /** The team form always names a plan — it is a step in the form. */
     plan: registrationPlanChoiceSchema,

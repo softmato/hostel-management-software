@@ -3,7 +3,7 @@ import "server-only";
 import { Types } from "mongoose";
 
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
-import { BookingModel } from "@hostel/db/models/Booking";
+import { BookingModel, type BookingStatus } from "@hostel/db/models/Booking";
 import { BookingPaymentModel } from "@hostel/db/models/BookingPayment";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import {
@@ -184,25 +184,44 @@ export async function reviewBookingPayment(
   }).catch(() => undefined);
 
   return input.approve
-    ? approve(booking, principal, now)
+    ? markBookingPaid(booking, principal.userId, now)
     : reject(booking, note ?? "", now);
 }
 
-async function approve(booking: BookingRecord, principal: ApiPrincipal, now: Date) {
-  const receiptNumber = await allocate("BOOKING_RECEIPT", now);
+/**
+ * The fee is in: the booking goes to the hostel to answer, and both sides hear.
+ *
+ * Two callers. A superadmin approving a screenshot moves it out of
+ * `PAYMENT_IN_REVIEW`; Softmato settling a checkout moves it straight out of
+ * `AWAITING_PAYMENT`, with no person to name (`actorId` null). The move is a
+ * compare-and-set on that status, so a webhook and the return page settling
+ * the same payment at once produce one paid booking and one `null`.
+ */
+export async function markBookingPaid(
+  booking: BookingRecord,
+  actorId: string | null,
+  now: Date,
+  from: BookingStatus = "PAYMENT_IN_REVIEW",
+  /** Softmato's transaction number when it took the fee; otherwise one is allocated here. */
+  softmatoReceipt: string | null = null,
+) {
   const hostelAnswerBy = hostelAnswerDeadline(booking.terms, now);
-
-  const paid = await moveBooking(booking._id, "PAYMENT_IN_REVIEW", {
+  const moved = await moveBooking(booking._id, from, {
     hostelAnswerBy,
     paymentVerifiedAt: now,
-    paymentVerifiedBy: principal.userId,
-    receiptNumber,
+    paymentVerifiedBy: actorId,
     status: "AWAITING_HOSTEL",
   });
 
-  if (!paid) {
+  if (!moved) {
     throw new BookingError("This booking is not waiting for a payment check.", "BOOKING_NOT_IN_REVIEW", 409);
   }
+
+  // Numbered only once the move is won, so a lost race never burns a receipt number.
+  const receiptNumber = softmatoReceipt ?? (await allocate("BOOKING_RECEIPT", now));
+  const paid = { ...moved, receiptNumber };
+
+  await BookingModel.updateOne({ _id: moved._id }, { $set: { receiptNumber } });
 
   // Both papers on the one mail: the receipt for what they just paid, and the
   // invoice again beside it, so the pair lives in the mailbox and not only
@@ -238,7 +257,7 @@ async function approve(booking: BookingRecord, principal: ApiPrincipal, now: Dat
 
   if (!hostel || hostel.isDeleted || hostel.status !== "PUBLISHED") {
     return endBooking(paid, {
-      actorId: principal.userId,
+      actorId,
       from: ["AWAITING_HOSTEL"],
       now,
       reason: "The hostel is no longer listed.",

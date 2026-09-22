@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { handleRouteError, successResponse } from "@/lib/api-response";
+import { handleRouteError, progressResponse, successResponse } from "@/lib/api-response";
 import { rateLimitPublicForm } from "@/lib/rate-limit";
 import { planCheckoutSchema, runPlanCheckout } from "@/modules/billing/plan-checkout.service";
 
@@ -20,6 +20,10 @@ export async function POST(request: NextRequest) {
       const limited = rateLimitPublicForm(request, { namespace: `plan-checkout-${input.step}` });
 
       if (limited) return limited;
+    }
+
+    if (input.step === "pay") {
+      return progressResponse(request, (step) => runPlanCheckout(input, undefined, step), "OK");
     }
 
     const result = await runPlanCheckout(input, {

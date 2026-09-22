@@ -20,38 +20,38 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 /**
- * Proof that money was received against a plan invoice.
+ * Money received against a plan invoice, and what it switched on.
  *
- * Sent per payment, not per invoice — a hostel that pays in two instalments
- * gets two receipts, each stating what that instalment was and what is left.
- * `Receipt` one level down explains why an amended-in-place receipt is not
- * evidence, and the same reasoning holds here.
+ * **Not a receipt.** Softmato — the parent company — issues every receipt and
+ * emails it itself; this confirms the payment in the product's own words and
+ * says the receipt follows, quoting Softmato's number when it is known. Two
+ * documents claiming to be the receipt for one payment is the mismatch this
+ * exists to avoid.
  *
  * When `outstanding` is above zero the email says so plainly rather than
  * congratulating somebody who still owes money. That case only arises on a
- * team-collected payment, where the hostel is already live and the balance is a
- * due — so the wording has to work for a reader whose listing is up and who is
- * nonetheless being asked for more. It carries no button: it is paperwork, and
- * the owner is asked to pay by the email that states the balance, not by this.
+ * team-collected payment, where the hostel is already live and the balance is
+ * a due.
  */
 export function subscriptionReceiptEmail(input: {
   amount: number;
-  /** The receipt PDF is on this email. */
-  attached?: boolean;
   dueBy?: string | null;
   hostelName: string;
   invoiceNumber: string;
   method: string;
   outstanding: number;
   planName: string;
-  receiptNumber: string;
+  /** Softmato's receipt (transaction) number, when there is one. */
+  receiptNumber: string | null;
 }): EmailContent {
   const settled = input.outstanding <= 0;
   const methodLabel = METHOD_LABELS[input.method] ?? input.method;
 
   return {
     category: "billing",
-    subject: `Receipt ${input.receiptNumber} — ${formatRupees(input.amount)} received`,
+    subject: settled
+      ? `${formatRupees(input.amount)} received — your ${input.planName} plan is active`
+      : `${formatRupees(input.amount)} received — ${formatRupees(input.outstanding)} still due`,
     html: emailLayout({
       bodyHtml: [
         paragraph(
@@ -60,7 +60,7 @@ export function subscriptionReceiptEmail(input: {
         detailsTable([
           { emphasis: true, label: "Amount received", value: formatRupees(input.amount) },
           { label: "Paid by", value: methodLabel },
-          { label: "Receipt", value: input.receiptNumber },
+          ...(input.receiptNumber ? [{ label: "Receipt", value: input.receiptNumber }] : []),
           { label: "Invoice", value: input.invoiceNumber },
           ...(settled
             ? []
@@ -74,14 +74,14 @@ export function subscriptionReceiptEmail(input: {
             ? "That settles the invoice in full. Your plan is active and your listing is live."
             : "Your listing stays live while you pay the balance.",
         ),
-        input.attached ? smallPrint("The receipt is attached to this email as a PDF.") : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      eyebrow: "Receipt",
+        smallPrint(
+          "Softmato, our parent company, issues your official receipt. We will email it to you shortly.",
+        ),
+      ].join("\n"),
+      eyebrow: "Payment received",
       heading: settled ? "Payment received" : "Part payment received",
       preheader: settled
-        ? `${formatRupees(input.amount)} received for ${input.planName}. Thank you.`
+        ? `${formatRupees(input.amount)} received for ${input.planName}. Your receipt follows shortly.`
         : `${formatRupees(input.amount)} received. ${formatRupees(input.outstanding)} is still due.`,
     }),
   };

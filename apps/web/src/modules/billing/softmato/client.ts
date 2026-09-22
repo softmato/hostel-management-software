@@ -1,6 +1,6 @@
 import "server-only";
 
-import { SoftmatoClient } from "@softmato/sdk";
+import { SoftmatoApiError, SoftmatoClient, SoftmatoTransportError } from "@softmato/sdk";
 
 import { softmatoConfig } from "./config";
 
@@ -74,4 +74,12 @@ export function softmato(): SoftmatoClient {
 /** Test seam. Nothing in the app calls this. */
 export function resetSoftmatoClient(): void {
   cached = null;
+}
+
+/** Softmato could not be reached — as opposed to answering "no". */
+export function isSoftmatoDown(error: unknown): boolean {
+  return (
+    error instanceof SoftmatoTransportError ||
+    (error instanceof SoftmatoApiError && error.status >= 500)
+  );
 }

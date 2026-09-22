@@ -1,7 +1,6 @@
 "use client";
 
-import { CheckCircle2, Info, Loader2, Mail, ShieldCheck, Upload } from "lucide-react";
-import Image from "next/image";
+import { CheckCircle2, Info, Loader2, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
@@ -9,9 +8,9 @@ import { billingCycles, cycleTotal, getPlan, type BillingCycle } from "@hostel/s
 
 import { useSiteConfig } from "@/components/site-config-provider";
 import { browserApi } from "@/lib/browser-api";
-import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 
+import { CHECKOUT_TOKEN_KEY, CheckoutHandoffButton } from "./checkout-handoff";
 import { PublicShell } from "./shared";
 
 type PaymentState = {
@@ -86,8 +85,6 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
   const [payment, setPayment] = useState<PaymentState | null>(null);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [reused, setReused] = useState(false);
-  const [proof, setProof] = useState<{ claimToken: string; fileAssetId: string; name: string } | null>(null);
-  const [reference, setReference] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -153,52 +150,18 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
       });
 
       setToken(verified.token);
+
+      // So the return page can tell a signed-out owner what happened to their money.
+      try {
+        sessionStorage.setItem(CHECKOUT_TOKEN_KEY, verified.token);
+      } catch {
+        // Without it the return page asks them to sign in instead.
+      }
       setHostel(verified.hostel);
       setInvoice(raised.invoice);
       setReused(raised.reused);
       setPayment(raised);
       setStep(raised.instructions.claim ? "done" : "pay");
-    });
-  }
-
-  function payOnline() {
-    void run("online", async () => {
-      const session = await checkout<{ checkoutUrl: string }>({ step: "pay", token });
-
-      window.location.assign(session.checkoutUrl);
-    });
-  }
-
-  function attach(file: File) {
-    void run("upload", async () => {
-      const uploaded = await uploadFile(file, {
-        kind: "image",
-        label: "Payment screenshot",
-        silent: true,
-        target: "public",
-        visibility: "private",
-      });
-
-      if (!uploaded?.assetId || !uploaded.claimToken) {
-        throw new Error("Could not upload that screenshot. Try again.");
-      }
-
-      setProof({ claimToken: uploaded.claimToken, fileAssetId: uploaded.assetId, name: file.name });
-    });
-  }
-
-  function sendProof() {
-    if (!proof) return;
-
-    void run("claim", async () => {
-      await checkout({
-        claimToken: proof.claimToken,
-        fileAssetId: proof.fileAssetId,
-        reference,
-        step: "claim",
-        token,
-      });
-      setStep("done");
     });
   }
 
@@ -384,64 +347,19 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
               </p>
 
               {payment.online ? (
-                <button className={PRIMARY} disabled={Boolean(busy)} onClick={payOnline} type="button">
-                  {busy === "online" ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Pay online
-                </button>
-              ) : null}
-
-              {payment.instructions.qr ? (
-                <div className="space-y-3 border-t border-border pt-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    {payment.online ? "Or scan to pay" : "Scan to pay"}
-                  </p>
-                  <div className="mx-auto w-fit rounded-xl border border-border bg-white p-2">
-                    <Image
-                      alt="Payment QR"
-                      height={200}
-                      src={payment.instructions.qr.url}
-                      unoptimized
-                      width={200}
-                    />
-                  </div>
-                  <p className="text-center text-xs text-muted-foreground">
-                    {payment.instructions.qr.label} · write{" "}
-                    <strong className="font-mono text-foreground">{payment.instructions.reference}</strong> in
-                    the remarks
-                  </p>
-                  <label className="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-semibold text-foreground transition hover:border-brand-teal">
-                    {busy === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                    {proof ? proof.name : "Attach payment screenshot"}
-                    <input
-                      accept="image/jpeg,image/png,image/webp"
-                      className="sr-only"
-                      onChange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-
-                        if (file) attach(file);
-
-                        event.currentTarget.value = "";
-                      }}
-                      type="file"
-                    />
-                  </label>
-                  <input
-                    className={INPUT}
-                    maxLength={120}
-                    onChange={(event) => setReference(event.target.value)}
-                    placeholder="Transaction ID (optional)"
-                    value={reference}
-                  />
-                  <button className={PRIMARY} disabled={!proof || Boolean(busy)} onClick={sendProof} type="button">
-                    {busy === "claim" ? <Loader2 className="size-4 animate-spin" /> : null}
-                    Send payment proof
-                  </button>
-                </div>
-              ) : !payment.online ? (
+                <CheckoutHandoffButton
+                  back="/hostel-admin/billing"
+                  body={{ step: "pay", token }}
+                  className={PRIMARY}
+                  endpoint="/api/v1/public/plan-checkout"
+                  label={`Pay ${rupees(payment.instructions.amountDue)}`}
+                  preparing="Setting up your plan payment"
+                />
+              ) : (
                 <p className="text-sm text-muted-foreground">
                   Payment is not open right now. Contact us and we will take it for you.
                 </p>
-              ) : null}
+              )}
             </div>
           ) : null}
 

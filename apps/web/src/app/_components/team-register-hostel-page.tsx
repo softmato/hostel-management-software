@@ -33,6 +33,7 @@ import {
   type ReactElement,
 } from "react";
 
+import { useCheckoutHandoff } from "@/app/_components/checkout-handoff";
 import { useConfirm } from "@/app/_components/confirm-dialog";
 import { MEAL_TIMING_DEFAULTS } from "@hostel/shared/food/meal-window";
 
@@ -803,11 +804,12 @@ export function TeamRegisterHostelPage() {
 
   const [planId, setPlanId] = useState("");
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
-  const [method, setMethod] = useState<"CASH" | "SOFTMATO">("CASH");
+  // Online first: Softmato confirms it on the spot. Cash waits for a second person there.
+  const [method, setMethod] = useState<"CASH" | "SOFTMATO">("SOFTMATO");
   const [amount, setAmount] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [payout, setPayout] = useState(EMPTY_PAYOUT_DRAFT);
-  const [qr, setQr] = useState<{ label: string; url: string } | null>(null);
+  const handoff = useCheckoutHandoff();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -930,7 +932,8 @@ export function TeamRegisterHostelPage() {
   const priced = catalog.plans.filter((plan) => plan.monthly > 0);
   const plan = priced.find((entry) => entry.id === planId);
   const price = plan ? cycleTotal(plan, cycle) : 0;
-  const collecting = numberValue(amount) ?? 0;
+  // Online money is Softmato's to confirm, after publishing; only cash is typed in.
+  const collecting = method === "CASH" ? (numberValue(amount) ?? 0) : 0;
   const shortfall = Math.max(0, price - collecting);
   const uploading = documents.some((doc) => doc.uploading) || photos.some((p) => p.uploading);
 
@@ -1008,26 +1011,6 @@ export function TeamRegisterHostelPage() {
       index,
     );
   }
-
-  /* ── The QR the owner scans ──────────────────────────────────────────── */
-
-  useEffect(() => {
-    async function loadQr() {
-      try {
-        const result = await browserApi<{ qr: { label: string; url: string } }>(
-          "/api/v1/team/collection-qr",
-        );
-
-        setQr(result.qr);
-      } catch {
-        // A missing QR is not an error worth blocking the form for — the
-        // payment step says so in place of the image, and cash still works.
-        setQr(null);
-      }
-    }
-
-    void loadQr();
-  }, []);
 
   /* ── Draft ───────────────────────────────────────────────────────────── */
 
@@ -1957,12 +1940,16 @@ export function TeamRegisterHostelPage() {
       actionLabel: "Publish the hostel",
       description: [
         `${hostelName.trim()} goes live now, on the ${plan?.name} plan at ${rupees(price)}.`,
-        collecting > 0
-          ? `${rupees(collecting)} collected by ${method === "CASH" ? "cash" : "QR"}.`
-          : "Nothing collected today.",
-        shortfall > 0
-          ? `${rupees(shortfall)} becomes a due on the owner's dashboard.`
-          : "Nothing left owing.",
+        method === "SOFTMATO"
+          ? `Next, Softmato checkout opens on this phone for the owner to pay ${rupees(price)}.`
+          : collecting > 0
+            ? `${rupees(collecting)} cash is filed with Softmato; the owner's receipt follows once it is confirmed.`
+            : "Nothing collected today.",
+        method === "SOFTMATO"
+          ? "Anything they do not pay now stays a due on their dashboard."
+          : shortfall > 0
+            ? `${rupees(shortfall)} becomes a due on the owner's dashboard.`
+            : "Nothing left owing.",
         "The owner will be emailed that their hostel is published.",
       ].join(" "),
       title: "Publish this hostel?",
@@ -1995,7 +1982,21 @@ export function TeamRegisterHostelPage() {
 
       // Straight on to the people already living there — the owner is usually
       // still at the counter, which is the easiest moment to fill that list.
-      router.push(`/team/hostels/${result.hostel.id}/residents?published=1`);
+      const residents = `/team/hostels/${result.hostel.id}/residents?published=1`;
+
+      if (method === "SOFTMATO" && price > 0) {
+        // The hostel exists now, so a closed or failed hand-off still moves on.
+        void handoff.start({
+          back: residents,
+          endpoint: `/api/v1/team/hostels/${result.hostel.id}/checkout`,
+          onClose: () => router.push(residents),
+          preparing: "Setting up the plan payment",
+        });
+
+        return;
+      }
+
+      router.push(residents);
     } catch (err) {
       setSubmitting(false);
 
@@ -2057,6 +2058,7 @@ export function TeamRegisterHostelPage() {
   return (
     <FieldErrorContext.Provider value={{ clear: clearSubmitError, errors: fieldErrors }}>
     <div className="pb-10">
+      {handoff.overlay}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
@@ -3072,8 +3074,8 @@ export function TeamRegisterHostelPage() {
                 <div className="flex gap-2">
                   {(
                     [
+                      ["SOFTMATO", "Online (recommended)", QrCode],
                       ["CASH", "Cash", Banknote],
-                      ["SOFTMATO", "Online", QrCode],
                     ] as const
                   ).map(([value, label, Icon]) => (
                     <button
@@ -3094,99 +3096,34 @@ export function TeamRegisterHostelPage() {
                 </div>
 
                 {method === "SOFTMATO" ? (
-                  <div className="mt-4 flex flex-col gap-4 rounded-lg border border-border bg-muted/30 p-4 sm:flex-row sm:items-center">
-                    {/*
-                      Sized to be scanned across a desk, and tappable to go
-                      fullscreen. A phone camera reading a QR off another screen
-                      needs the modules bigger than a thumbnail makes them — and
-                      in a badly lit lobby the fullscreen view, at whatever the
-                      agent's screen brightness is, is the one that works.
-                    */}
-                    <div className="flex size-56 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-white p-2">
-                      {qr?.url ? (
-                        <button
-                          className="size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-teal/50"
-                          onClick={() =>
-                            mediaViewer.open([
-                              {
-                                caption: qr.label || undefined,
-                                kind: "image",
-                                src: qr.url,
-                                title: "Scan to pay",
-                              },
-                            ])
-                          }
-                          title="Tap to show it full screen"
-                          type="button"
-                        >
-                          <Image
-                            alt="Scan to pay"
-                            className="size-full object-contain"
-                            height={224}
-                            src={qr.url}
-                            unoptimized
-                            width={224}
-                          />
-                        </button>
-                      ) : (
-                        <span className="px-3 text-center text-[11px] text-muted-foreground">
-                          No QR has been set yet — a superadmin uploads it in
-                          Platform → System → Settings.
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-                      <p className="font-semibold text-foreground">
-                        Let the owner scan this, then type in what arrived.
-                      </p>
-                      {qr?.label ? (
-                        <p className="mt-1">
-                          Read the account name out as they scan:{" "}
-                          <span className="font-semibold text-foreground">
-                            {qr.label}
-                          </span>
-                          . They should see the same name before they confirm.
-                        </p>
-                      ) : null}
-                      <p className="mt-1">
-                        The amount below is what we record as received, so take it
-                        from their confirmation screen and not from what was agreed.
-                      </p>
-                    </div>
+                  <p className="mt-4 rounded-lg border border-border bg-muted/30 p-4 text-xs leading-relaxed text-muted-foreground">
+                    <span className="font-semibold text-foreground">
+                      The owner pays on this phone, straight after you publish.
+                    </span>{" "}
+                    Softmato checkout opens here with a Fonepay QR they scan from their
+                    banking app, or their wallet. Softmato confirms the money and the
+                    plan switches on by itself — there is nothing to type in.
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <Field hint="Whole rupees taken in hand." label="Amount collected" name="amount">
+                      <input
+                        className="input-field w-full"
+                        inputMode="numeric"
+                        onChange={(event) => setAmount(event.target.value)}
+                        placeholder="0"
+                        value={amount}
+                      />
+                    </Field>
+                    <Field hint="Slip number, if you wrote one." label="Reference" name="paymentReference">
+                      <input
+                        className="input-field w-full"
+                        onChange={(event) => setPaymentReference(event.target.value)}
+                        value={paymentReference}
+                      />
+                    </Field>
                   </div>
-                ) : null}
-
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <Field
-                    hint={
-                      method === "CASH"
-                        ? "Whole rupees taken in hand."
-                        : "Whole rupees shown on their confirmation."
-                    }
-                    label="Amount collected"
-                    name="amount"
-                  >
-                    <input
-                      className="input-field w-full"
-                      inputMode="numeric"
-                      onChange={(event) => setAmount(event.target.value)}
-                      placeholder="0"
-                      value={amount}
-                    />
-                  </Field>
-                  <Field
-                    hint={method === "CASH" ? "Slip number, if you wrote one." : "Transaction id."}
-                    label="Reference"
-                    name="paymentReference"
-                  >
-                    <input
-                      className="input-field w-full"
-                      onChange={(event) => setPaymentReference(event.target.value)}
-                      value={paymentReference}
-                    />
-                  </Field>
-                </div>
+                )}
 
                 {plan ? (
                   <dl className="mt-4 space-y-1.5 rounded-lg border border-border bg-muted/30 p-3 text-sm">
@@ -3259,9 +3196,11 @@ export function TeamRegisterHostelPage() {
                       ["Plan", plan ? `${plan.name} · ${rupees(price)}` : "—"],
                       [
                         "Collected",
-                        collecting > 0
-                          ? `${rupees(collecting)} · ${method === "CASH" ? "cash" : "QR"}`
-                          : "Nothing",
+                        method === "SOFTMATO"
+                          ? "Online, straight after publishing"
+                          : collecting > 0
+                            ? `${rupees(collecting)} · cash`
+                            : "Nothing",
                       ],
                     ] as const
                   ).map(([label, value]) => (

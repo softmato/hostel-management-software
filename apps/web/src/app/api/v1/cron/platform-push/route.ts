@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
+import { retrySoftmatoTasks } from "@/modules/billing/softmato/retry";
 import { logger } from "@/lib/logger";
 import { sweepBookings } from "@/modules/bookings/booking-sweep.service";
 import { dispatchDueNoticePushes } from "@/modules/notices/notice-push.service";
@@ -43,8 +44,15 @@ export async function POST(request: NextRequest) {
       return { error: "Booking sweep failed." };
     });
 
+    // Work that waited for Softmato rides it too: finished, and people emailed, once it answers.
+    const softmatoRetries = await retrySoftmatoTasks().catch((error: unknown) => {
+      logger.error("Softmato retries failed.", { error: String(error) });
+
+      return { error: "Softmato retries failed." };
+    });
+
     return successResponse(
-      { ...platformPushes, bookings, noticePushes },
+      { ...platformPushes, bookings, noticePushes, softmatoRetries },
       "Scheduled pushes dispatched",
     );
   } catch (error) {

@@ -325,43 +325,20 @@ describe("raising the invoice", () => {
   });
 
   /*
-   * Softmato is not configured in this suite, so every raise here takes the
-   * unreachable path — which is the path that now has to produce a document
-   * rather than leave the owner with an invoice they cannot be shown.
+   * Softmato is not configured in this suite, so every raise here fails. The
+   * invoice must then wait for Softmato — never get a number of our own, which
+   * would be a second invoice for the same money.
    */
-  it("issues our own numbered document when Softmato cannot be reached", async () => {
+  it("leaves the invoice waiting, with no stand-in number, when Softmato cannot raise it", async () => {
     mocks.subscriptionFindOne.mockReturnValue(query(subscription()));
     mocks.subscriptionFindById.mockReturnValue(query(subscription()));
     mocks.invoiceFindOne.mockReturnValue(query(invoice()));
     mocks.invoiceFindById.mockReturnValue(query(invoice()));
-    mocks.documentSequenceFindOneAndUpdate.mockReturnValue(
-      query({ sequence: 12 }),
-    );
-    mocks.invoiceFindOneAndUpdate.mockReturnValue(
-      query({ localInvoiceNo: "HH-INV-2083/84-000012" }),
-    );
 
     const result = await issueSubscriptionInvoice(hostelId.toString(), actorId);
 
-    // The `HH-` prefix is what keeps our series from ever colliding with theirs.
-    expect(result.localInvoiceNo).toMatch(/^HH-INV-/);
-    // Never into the field a webhook is matched on.
+    expect(result.localInvoiceNo ?? null).toBeNull();
     expect(result.softmatoInvoiceNo ?? null).toBeNull();
-    // And the owner gets a download button, not a "not raised yet".
-    expect(result.documentUrl).toContain("/billing/documents/invoice/");
-  });
-
-  it("does not burn a second number on an invoice that already has one", async () => {
-    mocks.subscriptionFindOne.mockReturnValue(query(subscription()));
-    mocks.subscriptionFindById.mockReturnValue(query(subscription()));
-    mocks.invoiceFindOne.mockReturnValue(query(invoice()));
-    mocks.invoiceFindById.mockReturnValue(
-      query({ ...invoice(), localInvoiceNo: "HH-INV-2083/84-000007" }),
-    );
-
-    const result = await issueSubscriptionInvoice(hostelId.toString(), actorId);
-
-    expect(result.localInvoiceNo).toBe("HH-INV-2083/84-000007");
     expect(mocks.documentSequenceFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });

@@ -161,7 +161,66 @@ async function parseResponse<T>(
   return payload.data;
 }
 
-export async function browserApi<T>(input: RequestInfo | URL, init?: RequestInit) {
+/**
+ * Reads a `progressResponse` stream: every `{ step }` line goes to `onStep` as
+ * it arrives, and the final `{ data }` or `{ error }` line settles the call the
+ * way a JSON envelope would. A stream that ends with neither was cut off.
+ */
+async function readProgress<T>(response: Response, onStep: (step: string) => void): Promise<T> {
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+
+  while (reader) {
+    const { done, value } = await reader.read();
+    buffered += decoder.decode(value, { stream: !done });
+
+    const lines = buffered.split("\n");
+    buffered = done ? "" : (lines.pop() ?? "");
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+
+      const event = JSON.parse(line) as {
+        data?: T;
+        error?: { errorCode?: string; message?: string };
+        step?: string;
+      };
+
+      if (event.step) onStep(event.step);
+      else if (event.error) {
+        throw new ApiRequestError(
+          event.error.message || "Request failed",
+          undefined,
+          response.status,
+          event.error.errorCode,
+        );
+      } else if ("data" in event) return event.data as T;
+    }
+
+    if (done) break;
+  }
+
+  throw new ApiRequestError("The connection dropped before it finished. Please try again.");
+}
+
+export async function browserApi<T>(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  /** Ask for a `progressResponse` stream and hear each step as it starts. */
+  onStep?: (step: string) => void,
+) {
+  if (onStep) {
+    const headers = new Headers(init?.headers);
+    headers.set("accept", "application/x-ndjson");
+    init = { ...init, headers };
+  }
+
+  const settle = (res: Response) =>
+    onStep && res.ok && res.headers.get("content-type")?.startsWith("application/x-ndjson")
+      ? readProgress<T>(res, onStep)
+      : parseResponse<T>(res, input);
+
   const response = await sendRequest(input, init);
   const isAuthCall = isAuthEndpoint(requestUrl(input));
 
@@ -172,7 +231,7 @@ export async function browserApi<T>(input: RequestInfo | URL, init?: RequestInit
 
     if (refreshed) {
       const retry = await sendRequest(input, init);
-      return parseResponse<T>(retry, input);
+      return settle(retry);
     }
 
     // Refresh token is gone or invalid — the session is truly over.
@@ -196,9 +255,9 @@ export async function browserApi<T>(input: RequestInfo | URL, init?: RequestInit
 
     if (refreshed) {
       const retry = await sendRequest(input, init);
-      return parseResponse<T>(retry, input);
+      return settle(retry);
     }
   }
 
-  return parseResponse<T>(response, input);
+  return settle(response);
 }

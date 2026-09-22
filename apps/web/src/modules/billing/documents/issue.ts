@@ -130,7 +130,7 @@ export async function loadIssuer(): Promise<Issuer> {
  * for collecting rent from residents, and printing it here would tell an owner
  * to pay us into their own eSewa account.
  */
-const PAYMENT_METHODS = ["Khalti", "eSewa", "Bank transfer"];
+const PAYMENT_METHODS = ["Khalti", "eSewa", "Fonepay", "Bank transfer"];
 
 /* ── Invoice ───────────────────────────────────────────────────────────── */
 

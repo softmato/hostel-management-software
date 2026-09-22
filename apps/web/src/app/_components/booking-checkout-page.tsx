@@ -1,7 +1,7 @@
 "use client";
 
 import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
-import { BedDouble, CalendarCheck, Check, Copy, ShieldCheck, Upload } from "lucide-react";
+import { BedDouble, CalendarCheck, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
@@ -20,12 +20,12 @@ import {
 } from "@/app/_components/booking-ui";
 import { MediaLightbox, type LightboxItem } from "@/components/media-lightbox";
 import { ApiRequestError, browserApi } from "@/lib/browser-api";
-import { uploadFile } from "@/lib/uploads/uploader";
 import { cn } from "@/lib/utils";
 import type { BookingAvailabilityView } from "@/modules/bookings/booking-button";
 import type { BookingQuote, GuestBookingDetail } from "@/modules/bookings/booking.service";
 import { useSessionStore, type SessionUser } from "@/stores/session-store";
 
+import { CheckoutHandoffButton } from "./checkout-handoff";
 import { PublicShell } from "./shared";
 
 /**
@@ -413,156 +413,24 @@ function BookingForm({
 
 /* ── Right column: once it exists ──────────────────────────────────────── */
 
-function PayStep({ booking, onChange }: { booking: GuestBookingDetail; onChange: (booking: GuestBookingDetail) => void }) {
+function PayStep({ booking }: { booking: GuestBookingDetail }) {
   const pay = booking.pay!;
-  const [proof, setProof] = useState<{ id: string; name: string; previewUrl: string } | null>(null);
-  const [reference, setReference] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
-
-  async function attach(file: File) {
-    setUploading(true);
-    setError("");
-
-    try {
-      const result = await uploadFile(file, {
-        accessLevel: "PRIVATE",
-        assetKind: "BOOKING_PAYMENT_PROOF",
-        kind: "image",
-        label: "Payment screenshot",
-        silent: true,
-      });
-
-      if (!result?.assetId) {
-        throw new Error("The screenshot did not upload. Try again.");
-      }
-
-      setProof({ id: result.assetId, name: file.name, previewUrl: URL.createObjectURL(file) });
-    } catch (caught) {
-      setError(errorText(caught));
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  useEffect(() => () => URL.revokeObjectURL(proof?.previewUrl ?? ""), [proof]);
-
-  async function send() {
-    if (!proof) {
-      setError("Attach the payment screenshot first.");
-      return;
-    }
-
-    setSending(true);
-    setError("");
-
-    try {
-      const data = await browserApi<{ booking: GuestBookingDetail }>(
-        `/api/v1/bookings/${encodeURIComponent(booking.id)}/payment`,
-        { body: JSON.stringify({ proofAssetId: proof.id, reference: reference.trim() || undefined }), method: "POST" },
-      );
-
-      onChange(data.booking);
-    } catch (caught) {
-      setError(errorText(caught));
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function copyCode() {
-    void navigator.clipboard?.writeText(pay.reference).then(() => setCopied(true));
-  }
 
   return (
     <div className="space-y-6">
       {booking.paymentRejection?.reason ? (
-        <Notice tone="danger">We could not confirm your last screenshot: {booking.paymentRejection.reason}</Notice>
+        <Notice tone="danger">We could not confirm your last payment: {booking.paymentRejection.reason}</Notice>
       ) : null}
 
-      <Card title="1. Pay the booking fee">
-        <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
-          {pay.qr ? (
-            <figure>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={pay.qr.label} className="aspect-square w-full rounded-lg border border-border bg-white object-contain p-2" src={pay.qr.url} />
-              <figcaption className="mt-2 text-center text-xs text-muted-foreground">{pay.qr.label}</figcaption>
-            </figure>
-          ) : (
-            <Notice>The payment QR is not set up yet. Try again shortly.</Notice>
-          )}
-          <div className="space-y-4">
-            <Facts rows={[["Amount", rupees(pay.amount)], ["Pay by", at(pay.payBy)]]} />
-            <div>
-              <p className="text-sm font-semibold text-foreground">Write this in the remarks</p>
-              <button
-                className="mt-2 inline-flex h-11 w-full items-center justify-between rounded-lg border border-border bg-muted px-3 font-mono text-base font-bold text-foreground"
-                onClick={copyCode}
-                type="button"
-              >
-                {pay.reference}
-                {copied ? <Check className="size-4 text-brand-teal" /> : <Copy className="size-4 text-muted-foreground" />}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card title="2. Send the screenshot">
-        <label
-          className={cn(
-            "block cursor-pointer rounded-lg border border-dashed transition",
-            proof ? "border-brand-teal bg-muted/40" : "border-border hover:border-foreground/40",
-          )}
-        >
-          {uploading ? (
-            <span className="flex h-24 flex-col items-center justify-center gap-1 text-sm font-semibold text-muted-foreground">
-              <Upload className="size-5" />
-              Uploading…
-            </span>
-          ) : proof ? (
-            <span className="block p-2">
-              {/* The blob is this browser's copy of the file just picked. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt={proof.name} className="mx-auto max-h-64 w-full rounded-md object-contain" src={proof.previewUrl} />
-              <span className="mt-2 flex items-center justify-center gap-1.5 text-xs font-bold text-brand-teal">
-                <Upload className="size-3.5" />
-                Choose a different screenshot
-              </span>
-            </span>
-          ) : (
-            <span className="flex h-24 flex-col items-center justify-center gap-1 text-sm font-semibold text-muted-foreground transition hover:text-foreground">
-              <Upload className="size-5" />
-              Attach the screenshot from your banking app
-            </span>
-          )}
-          <input
-            accept="image/*"
-            className="sr-only"
-            disabled={uploading}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-
-              if (file) void attach(file);
-            }}
-            type="file"
-          />
-        </label>
-        <label className="mt-4 block text-sm font-semibold text-foreground">
-          Transaction ID <span className="font-normal text-muted-foreground">(optional)</span>
-          <input className={INPUT} maxLength={64} onChange={(event) => setReference(event.target.value)} value={reference} />
-        </label>
-        {error ? (
-          <div className="mt-4">
-            <Notice tone="danger">{error}</Notice>
-          </div>
-        ) : null}
-        <button className={cn(PRIMARY, "mt-5")} disabled={uploading || sending || !proof} onClick={() => void send()} type="button">
-          {sending ? "Sending…" : "Send screenshot"}
-        </button>
-        <p className="mt-3 text-xs text-muted-foreground">We check it within {pay.checkHours} hours.</p>
+      <Card title="Pay the booking fee">
+        <Facts rows={[["Amount", rupees(pay.amount)], ["Pay by", at(pay.payBy)], ["Booking", pay.reference]]} />
+        <CheckoutHandoffButton
+          back={`/bookings/${encodeURIComponent(booking.id)}`}
+          className={cn(PRIMARY, "mt-5")}
+          endpoint={`/api/v1/bookings/${encodeURIComponent(booking.id)}/checkout`}
+          label={`Pay ${rupees(pay.amount)}`}
+          preparing="Setting up your booking payment"
+        />
       </Card>
     </div>
   );
@@ -571,7 +439,7 @@ function PayStep({ booking, onChange }: { booking: GuestBookingDetail; onChange:
 function nextStep(booking: GuestBookingDetail) {
   switch (booking.status) {
     case "PAYMENT_IN_REVIEW":
-      return "We are checking your payment screenshot. We email you as soon as it is checked.";
+      return "We are checking your payment. We email you as soon as it is checked.";
     case "AWAITING_HOSTEL":
       return `Payment received. ${booking.hostel.name} confirms by ${at(booking.hostelAnswerBy)}. If it declines or does not answer, the full fee comes back.`;
     case "CONFIRMED":
@@ -686,7 +554,7 @@ export function BookingCheckoutPage({
   function right(current: BookingQuote) {
     if (booking) {
       return booking.status === "AWAITING_PAYMENT" && booking.pay ? (
-        <PayStep booking={booking} onChange={setBooking} />
+        <PayStep booking={booking} />
       ) : (
         <StatusCard booking={booking} />
       );

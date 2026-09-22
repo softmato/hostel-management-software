@@ -4,9 +4,12 @@ import { Types } from "mongoose";
 
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
+import { SoftmatoDocumentModel } from "@hostel/db/models/SoftmatoDocument";
 
 import { connectToDatabase } from "@/lib/db";
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
+import { isSoftmatoDown } from "@/modules/billing/softmato/client";
+import { SoftmatoUnavailableError } from "@/modules/billing/softmato/outage";
 import {
   documentFilename as softmatoFilename,
   downloadInvoiceFile,
@@ -16,7 +19,6 @@ import {
 
 import {
   documentFileName,
-  ensureLocalInvoiceNumber,
   ensureLocalReceiptNumber,
   renderInvoiceForRow,
   renderReceiptForRow,
@@ -83,60 +85,52 @@ function scopeFilter(scope: HostelScope): Record<string, unknown> {
  * deployment silently serving its own documents for every customer is worth
  * knowing about — and then the caller falls through to rendering ours.
  */
-async function trySoftmato(
+/**
+ * Softmato's own file: from the local copy, or fetched and copied. A Softmato
+ * that cannot be reached is said so (503), never papered over with a redraw.
+ */
+export async function softmatoDocument(
+  kind: "invoice" | "receipt",
+  number: string,
+  version: string,
   read: () => Promise<Awaited<ReturnType<typeof downloadInvoiceFile>>>,
-  documentNumber: string,
 ): Promise<ResolvedDocument | null> {
-  if (!isSoftmatoConfigured()) return null;
+  const cached = await SoftmatoDocumentModel.findOne({ kind, number, version })
+    .lean<{ bytes: Buffer; contentType: string } | null>();
 
-  try {
-    const file = await read();
-
-    if (!file) return null;
-
-    /*
-     * Their PDF, or ours — never their HTML.
-     *
-     * A Softmato deployment with no PDF engine answers a PDF request with a
-     * printable HTML page. That is a real document, but it is not what an owner
-     * was promised: it went out as `INV-….html` on the invoice email while the
-     * receipt beside it — rendered here — arrived as a PDF, and the phone saved
-     * the same HTML under a `.pdf` name its reader refused to open. We can always
-     * print a PDF from our own rows, so an HTML answer is treated exactly like
-     * no answer.
-     */
-    if (!isPdf(file)) {
-      console.warn(
-        JSON.stringify({
-          action: "softmato_document_not_pdf",
-          contentType: file.contentType,
-          documentNumber,
-          level: "warn",
-          reason: file.pdfFallbackReason ?? null,
-        }),
-      );
-
-      return null;
-    }
-
+  if (cached) {
     return {
-      bytes: new Uint8Array(file.bytes),
-      contentType: file.contentType,
-      filename: softmatoFilename(documentNumber, file),
+      bytes: new Uint8Array(cached.bytes),
+      contentType: cached.contentType,
+      filename: softmatoFilename(number, { contentType: cached.contentType, pdfFallbackReason: null }),
       issuedBy: "softmato",
     };
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        action: "softmato_document_unavailable",
-        documentNumber,
-        level: "warn",
-        message: error instanceof Error ? error.message : "unknown",
-      }),
-    );
-
-    return null;
   }
+
+  if (!isSoftmatoConfigured()) throw new SoftmatoUnavailableError();
+
+  const file = await read().catch((error: unknown) => {
+    if (isSoftmatoDown(error)) throw new SoftmatoUnavailableError();
+    throw error;
+  });
+
+  if (!file) return null;
+
+  // Only a real PDF is kept; an HTML fallback is served but fetched again next time.
+  if (isPdf(file)) {
+    await SoftmatoDocumentModel.updateOne(
+      { kind, number, version },
+      { $setOnInsert: { bytes: Buffer.from(file.bytes), contentType: file.contentType } },
+      { upsert: true },
+    ).catch(() => undefined);
+  }
+
+  return {
+    bytes: new Uint8Array(file.bytes),
+    contentType: file.contentType,
+    filename: softmatoFilename(number, file),
+    issuedBy: "softmato",
+  };
 }
 
 /* ── Invoice ───────────────────────────────────────────────────────────── */
@@ -162,17 +156,15 @@ export async function resolveInvoiceDocument(
 
   if (!invoice) return null;
 
+  // Softmato's invoice is the invoice. The status is the copy's version: paid prints differently.
   if (invoice.softmatoInvoiceNo) {
-    const theirs = await trySoftmato(
-      () => downloadInvoiceFile(invoice.softmatoInvoiceNo as string),
-      invoice.softmatoInvoiceNo,
+    return softmatoDocument("invoice", invoice.softmatoInvoiceNo, String(invoice.status), () =>
+      downloadInvoiceFile(invoice.softmatoInvoiceNo as string),
     );
-
-    if (theirs) return theirs;
   }
 
-  const documentNumber =
-    invoice.localInvoiceNo ?? (await ensureLocalInvoiceNumber(invoice._id));
+  // Only history printed here before Softmato issued everything.
+  const documentNumber = invoice.localInvoiceNo;
 
   if (!documentNumber) return null;
 
@@ -236,13 +228,13 @@ export async function resolveReceiptDocument(
   if (!payment || payment.status !== "SETTLED") return null;
 
   if (payment.softmatoTransactionNo) {
-    const theirs = await trySoftmato(
-      () => downloadReceiptFile(payment.softmatoTransactionNo as string),
-      payment.softmatoTransactionNo,
+    return softmatoDocument("receipt", payment.softmatoTransactionNo, "1", () =>
+      downloadReceiptFile(payment.softmatoTransactionNo as string),
     );
-
-    if (theirs) return theirs;
   }
+
+  // Money Softmato never saw keeps the receipt printed here at the time.
+  if (payment.method === "SOFTMATO") return null;
 
   const documentNumber =
     payment.localTransactionNo ?? (await ensureLocalReceiptNumber(payment._id));

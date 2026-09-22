@@ -1,5 +1,6 @@
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
+import * as Linking from "expo-linking";
+import * as WebBrowser from "expo-web-browser";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, View } from "react-native";
@@ -31,14 +32,14 @@ import {
   createBooking,
   getBookingAvailability,
   getBookingQuote,
+  confirmBookingReturn,
   getMyBooking,
+  openBookingCheckout,
   type RefundMethod,
-  sendBookingPayment,
 } from "@/lib/booking-api";
 import { formatMoney } from "@/lib/format";
 import { absoluteMediaUrl } from "@/lib/media";
 import { toastError, toastSuccess } from "@/lib/toast";
-import { uploadAsset } from "@/lib/uploads";
 
 /**
  * The checkout — docs/BOOKINGS.md item 22.
@@ -303,49 +304,38 @@ function BookingForm({
 function PayStep({ booking, onChange }: { booking: BookingDetail; onChange: (booking: BookingDetail) => void }) {
   const pay = booking.pay!;
   const dates = useDates();
-  const [proof, setProof] = useState<{ assetId: string; name: string } | null>(null);
-  const [reference, setReference] = useState("");
-  const [uploading, setUploading] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [stage, setStage] = useState<"idle" | "opening" | "confirming">("idle");
 
-  const pick = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      toastError("Allow photo access to attach the screenshot");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.8 });
-    const asset = result.canceled ? null : result.assets[0];
-
-    if (!asset) return;
-
-    setUploading(true);
+  /*
+   * Softmato checkout in an in-app browser sheet — the app stays underneath.
+   * Its return page hands back to `hostelpalika://checkout/return`, and the
+   * app (which is signed in; the sheet is not) asks the server what happened.
+   * Asked even when the sheet was closed: they may have paid anyway.
+   */
+  const payNow = async () => {
+    setStage("opening");
 
     try {
-      const assetId = await uploadAsset(asset, { kind: "BOOKING_PAYMENT_PROOF", label: "Payment screenshot" });
+      const checkoutUrl = await openBookingCheckout(booking.id);
 
-      setProof({ assetId, name: asset.fileName ?? "Screenshot" });
-    } catch {
-      // The upload toaster already says what went wrong.
-    } finally {
-      setUploading(false);
-    }
-  };
+      await WebBrowser.openAuthSessionAsync(checkoutUrl, Linking.createURL("checkout/return"));
+      setStage("confirming");
 
-  const send = async () => {
-    if (!proof) return;
+      const state = await confirmBookingReturn(booking.id);
 
-    setSending(true);
+      onChange(await getMyBooking(booking.id));
 
-    try {
-      onChange(await sendBookingPayment(booking.id, { proofAssetId: proof.assetId, reference: reference.trim() || undefined }));
-      toastSuccess("Screenshot sent", `We check it within ${pay.checkHours} hours.`);
+      if (state.kind === "booking_paid") {
+        toastSuccess("Booking fee received", "We will email you your receipt shortly.");
+      } else if (state.kind === "booking_refund") {
+        toastSuccess("Payment refunded", "It arrived after the booking ended, so the full amount is coming back.");
+      } else if (state.kind === "pending_document") {
+        toastSuccess("Still confirming", "This booking updates as soon as Softmato confirms.");
+      }
     } catch (error) {
-      toastError("Could not send", readApiError(error, "Try again."));
+      toastError("Could not complete it", readApiError(error, "Try again."));
     } finally {
-      setSending(false);
+      setStage("idle");
     }
   };
 
@@ -353,53 +343,29 @@ function PayStep({ booking, onChange }: { booking: BookingDetail; onChange: (boo
     <View className="gap-6">
       {booking.paymentRejection?.reason ? (
         <View className="rounded-xl border border-destructive/30 bg-destructive/10 p-3">
-          <Text className="text-sm text-destructive">We could not confirm your last screenshot: {booking.paymentRejection.reason}</Text>
+          <Text className="text-sm text-destructive">We could not confirm your last payment: {booking.paymentRejection.reason}</Text>
         </View>
       ) : null}
 
       <View>
-        <SectionHeader title="1. Pay the booking fee" />
+        <SectionHeader title="Pay the booking fee" />
         <Card>
-          {pay.qr ? (
-            <View className="items-center">
-              <Image
-                accessibilityLabel={pay.qr.label}
-                contentFit="contain"
-                source={{ uri: absoluteMediaUrl(pay.qr.url, API_BASE_URL) ?? pay.qr.url }}
-                style={{ backgroundColor: "#ffffff", borderRadius: 12, height: 220, width: 220 }}
-              />
-              <Text className="mt-2" variant="caption">
-                {pay.qr.label}
-              </Text>
-            </View>
-          ) : (
-            <Text className="text-sm text-muted-foreground">The payment QR is not set up yet. Try again shortly.</Text>
-          )}
-          <View className="mt-3">
-            <Facts rows={[["Amount", formatMoney(pay.amount)], ["Pay by", dates.dateTime(pay.payBy)]]} />
-          </View>
-          <View className="mt-3 rounded-xl bg-muted p-3">
-            <Text variant="caption">Write this in the remarks</Text>
-            <Text className="mt-1 font-mono text-lg font-bold text-foreground" selectable>
-              {pay.reference}
-            </Text>
-          </View>
-        </Card>
-      </View>
-
-      <View>
-        <SectionHeader title="2. Send the screenshot" />
-        <Card>
-          <View className="gap-3">
-            <Button
-              label={uploading ? "Uploading…" : proof ? proof.name : "Attach the screenshot"}
-              loading={uploading}
-              onPress={() => void pick()}
-              variant="outline"
-            />
-            <Input label="Transaction ID (optional)" maxLength={64} onChangeText={setReference} value={reference} />
-            <Button disabled={!proof || uploading} label="Send screenshot" loading={sending} onPress={() => void send()} />
-          </View>
+          <Facts
+            rows={[
+              ["Amount", formatMoney(pay.amount)],
+              ["Pay by", dates.dateTime(pay.payBy)],
+              ["Booking", pay.reference],
+            ]}
+          />
+          <Text className="mt-3 text-xs leading-5 text-muted-foreground">
+            You will finish paying on Softmato, our company&apos;s secure checkout, and come straight back here.
+          </Text>
+          <Button
+            className="mt-4"
+            label={stage === "confirming" ? "Confirming your payment…" : `Pay ${formatMoney(pay.amount)}`}
+            loading={stage !== "idle"}
+            onPress={() => void payNow()}
+          />
         </Card>
       </View>
     </View>
@@ -417,7 +383,7 @@ function StatusCard({ booking }: { booking: BookingDetail }) {
       </View>
       <Text className="mt-2 text-sm leading-5 text-foreground">
         {booking.status === "PAYMENT_IN_REVIEW"
-          ? "We are checking your payment screenshot."
+          ? "We are checking your payment."
           : booking.status === "AWAITING_HOSTEL"
             ? `Payment received. ${booking.hostel.name} confirms by ${dates.dateTime(booking.hostelAnswerBy)}.`
             : booking.status === "CONFIRMED"

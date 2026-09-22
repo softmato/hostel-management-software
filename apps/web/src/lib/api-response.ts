@@ -101,3 +101,61 @@ export function handleRouteError(error: unknown) {
   logger.error("Unhandled API route error", { error });
   return errorResponse("Internal server error", "INTERNAL_SERVER_ERROR", 500);
 }
+
+/** What `browserApi(…, onStep)` asks for, and what `progressResponse` streams. */
+export const PROGRESS_CONTENT_TYPE = "application/x-ndjson";
+
+/**
+ * The same answer `successResponse` gives, but — when the caller asks for it —
+ * with each step announced as it *starts*, one JSON line at a time.
+ *
+ * It exists so a waiting screen can say what is really happening ("reading
+ * your invoice", "setting up the payment") instead of animating a guess. The
+ * steps are the server's own: `run` calls `step()` right before the work it
+ * names, so a line only ever describes something that is actually underway.
+ *
+ * A caller that does not send `Accept: application/x-ndjson` — the phone app,
+ * a script — gets the plain JSON envelope, unchanged. Errors go through
+ * `handleRouteError`, so a streamed failure carries exactly the message and
+ * code the JSON route would have. Authenticate **before** calling this: a 401
+ * must stay a real status, which is what lets `browserApi` refresh and retry.
+ */
+export async function progressResponse<T>(
+  request: Request,
+  run: (step: (name: string) => void) => Promise<T>,
+  message = "Request successful",
+): Promise<Response> {
+  if (!request.headers.get("accept")?.includes(PROGRESS_CONTENT_TYPE)) {
+    try {
+      return successResponse(await run(() => {}), message);
+    } catch (error) {
+      return handleRouteError(error);
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: object) =>
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+
+      try {
+        send({ data: await run((name) => send({ step: name })) });
+      } catch (error) {
+        const body = (await handleRouteError(error).json()) as ApiError;
+        send({ error: { errorCode: body.errorCode, message: body.message } });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      // Per-person and live: never cached, never buffered by a proxy.
+      "Cache-Control": "private, no-store",
+      "Content-Type": `${PROGRESS_CONTENT_TYPE}; charset=utf-8`,
+      "X-Accel-Buffering": "no",
+    },
+  });
+}

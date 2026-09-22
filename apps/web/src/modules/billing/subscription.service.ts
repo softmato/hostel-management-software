@@ -1,11 +1,10 @@
 import { Types } from "mongoose";
 
 import { connectToDatabase } from "@/lib/db";
-import {
-  documentDownloadUrl,
-  issueInvoiceDocument,
-} from "@/modules/billing/billing-gateway";
-import { ensureLocalInvoiceNumber } from "@/modules/billing/documents/issue";
+import { siteUrl } from "@/lib/site";
+import { issueInvoiceDocument } from "@/modules/billing/billing-gateway";
+import { isSoftmatoDown } from "@/modules/billing/softmato/client";
+import { rememberTask } from "@/modules/billing/softmato/outage";
 import { servicePeriod } from "@/modules/billing/softmato/invoice";
 import { buildPresentation } from "@/modules/billing/softmato/presentation";
 import { onInvoiceIssued } from "@/modules/hostels/hostel-registration.events";
@@ -920,25 +919,24 @@ export async function ensureInvoiceRaised(
     );
 
     /*
-     * **A document still exists.** Softmato could not raise theirs, so ours is
-     * the invoice — allocated here rather than lazily on first read, so the
-     * email that goes out in the next breath has a number to carry and the
-     * owner is never told to expect paperwork that has not been numbered.
-     *
-     * `documentUrl` is filled either way, because the route it points at
-     * resolves whichever document exists (`documents/deliver.ts`). Leaving it
-     * null on this path would give a hostel a billing screen with no download
-     * button beside an invoice it can perfectly well be shown.
+     * **No stand-in.** Softmato issues every invoice; a number of our own here
+     * would be a second invoice for the same money. The invoice waits, and when
+     * Softmato was simply unreachable the owner is emailed the moment it is
+     * raised (`softmato/retry.ts`).
      */
-    const localInvoiceNo = await ensureLocalInvoiceNumber(invoice._id);
-    const documentUrl = documentDownloadUrl("invoice", invoice.invoiceNumber);
+    if (isSoftmatoDown(error)) {
+      const contact = await resolveBillingContact(invoice.hostelId);
 
-    await SubscriptionInvoiceModel.updateOne(
-      { _id: invoice._id },
-      { $set: { documentUrl } },
-    );
+      await rememberTask({
+        email: contact.email || null,
+        kind: "PLAN_PAYMENT",
+        link: `${siteUrl()}/hostel-admin/billing`,
+        name: contact.name || null,
+        ref: String(invoice._id),
+      });
+    }
 
-    return { ...invoice, documentUrl, localInvoiceNo };
+    return invoice;
   }
 }
 

@@ -203,13 +203,22 @@ export async function getMyBooking(id: string) {
   return unwrap(response).booking;
 }
 
-export async function sendBookingPayment(id: string, input: { proofAssetId: string; reference?: string }) {
-  const response = await api.post<ApiEnvelope<{ booking: BookingDetail }>>(
-    `/bookings/${encodeURIComponent(id)}/payment`,
-    input,
+/** A Softmato checkout for the fee; its return page hands back through the app's deep link. */
+export async function openBookingCheckout(id: string) {
+  const response = await api.post<ApiEnvelope<{ checkoutUrl: string }>>(
+    `/bookings/${encodeURIComponent(id)}/checkout?via=app`,
   );
 
-  return unwrap(response).booking;
+  return unwrap(response).checkoutUrl;
+}
+
+/** What happened to the fee, read from Softmato by the server — never from the deep link. */
+export async function confirmBookingReturn(id: string) {
+  const response = await api.get<ApiEnvelope<{ state: { kind: string } }>>(
+    `/bookings/${encodeURIComponent(id)}/return`,
+  );
+
+  return unwrap(response).state;
 }
 
 /** `expectedRefund` is the figure on screen; if the clock moved it the server answers 409 `REFUND_CHANGED`. */

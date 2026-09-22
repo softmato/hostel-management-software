@@ -26,6 +26,7 @@ import {
   when,
 } from "@/modules/bookings/booking-notify";
 import { HOUR_MS, settlementFor } from "@/modules/bookings/booking-terms";
+import { settleBookingFromSoftmato } from "@/modules/bookings/booking-softmato.service";
 import type { BookingRecord } from "@/modules/bookings/booking-views";
 
 /**
@@ -230,7 +231,14 @@ export async function sweepBookings(now = new Date()): Promise<BookingSweepResul
   const expired = await endEach(
     { paymentDueBy: { $lte: now }, status: "AWAITING_PAYMENT" },
     "paymentDueBy",
-    (booking) => endUnpaid(booking, now),
+    async (booking) => {
+      // Paid at the last minute, and the webhook not in yet: ask before expiring.
+      const settled = booking.softmatoInvoiceNo
+        ? await settleBookingFromSoftmato(booking).catch(() => "unpaid")
+        : "unpaid";
+
+      return settled === "paid" ? null : endUnpaid(booking, now);
+    },
   );
   const missedAnswers = await endEach(
     { hostelAnswerBy: { $lte: now }, status: "AWAITING_HOSTEL" },

@@ -5,6 +5,8 @@ import { BookingTransferModel } from "@hostel/db/models/BookingTransfer";
 import type { EmailAttachment } from "@hostel/shared/email/sender";
 
 import { connectToDatabase } from "@/lib/db";
+import { softmatoDocument } from "@/modules/billing/documents/deliver";
+import { downloadReceiptFile } from "@/modules/billing/softmato/documents";
 import { documentFileName, loadIssuer } from "@/modules/billing/documents/issue";
 import {
   BOOKING_DOCUMENT_KINDS,
@@ -76,6 +78,11 @@ export async function resolveBookingDocument(
     return null;
   }
 
+  // Softmato's receipt, from the local copy or fetched once — never redrawn here.
+  if (paper === "receipt" && booking.softmatoInvoiceNo) {
+    return softmatoDocument("receipt", documentNumber, "1", () => downloadReceiptFile(documentNumber));
+  }
+
   const bytes = await renderBookingDocument(bookingDocumentLayout(paper, booking, transfer, await loadIssuer()));
 
   return { bytes, contentType: "application/pdf", filename: documentFileName(documentNumber) };
@@ -99,7 +106,8 @@ export async function bookingDocumentAttachment(
 ): Promise<EmailAttachment | null> {
   const documentNumber = kind === "invoice" ? booking.invoiceNumber : booking.receiptNumber;
 
-  if (!documentNumber) {
+  // Softmato emails its own receipt; ours would be a second one.
+  if (!documentNumber || (kind === "receipt" && booking.softmatoInvoiceNo)) {
     return null;
   }
 

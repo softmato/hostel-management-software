@@ -20,7 +20,10 @@ const bookingPaymentSchema = new Schema(
     userId: { ref: "User", required: true, type: Schema.Types.ObjectId },
     /** The booking's fee. The server's figure, never the payer's. */
     amount: { ...positiveWholeRupees, required: true },
-    proofAssetId: { ref: "FileAsset", required: true, type: Schema.Types.ObjectId },
+    /** The screenshot, for the manual lane. Absent when Softmato confirmed it. */
+    proofAssetId: { default: null, ref: "FileAsset", type: Schema.Types.ObjectId },
+    /** Set when the fee came through Softmato checkout rather than a screenshot. */
+    softmatoInvoiceNo: { default: null, trim: true, type: String },
     /** The transaction id from the payer's banking app, when they gave one. */
     reference: { default: null, trim: true, type: String },
     note: { default: null, trim: true, type: String },
@@ -40,6 +43,11 @@ const bookingPaymentSchema = new Schema(
 
 bookingPaymentSchema.index({ status: 1, submittedAt: 1 });
 bookingPaymentSchema.index({ bookingId: 1, createdAt: -1 });
+// One row per Softmato invoice, however many settlers race to write it.
+bookingPaymentSchema.index(
+  { softmatoInvoiceNo: 1 },
+  { partialFilterExpression: { softmatoInvoiceNo: { $type: "string" } }, unique: true },
+);
 
 export const BookingPaymentModel =
   models.BookingPayment || model("BookingPayment", bookingPaymentSchema);

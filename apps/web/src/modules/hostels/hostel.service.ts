@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
+import { fileFieldCash } from "@/modules/billing/cash-filing.service";
 import { paginationMeta, paginationRange } from "@/lib/pagination";
 import { escapeRegex } from "@/lib/validators";
 import { Role } from "@/lib/roles";
@@ -55,7 +56,6 @@ import {
   startPlanPeriod,
 } from "@/modules/billing/subscription.service";
 import {
-  recordFieldCollection,
 } from "@/modules/billing/subscription-payment.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import {
@@ -1574,28 +1574,12 @@ export async function registerTeamHostelApplication(
   await startPlanPeriod(invoice, invoice.issuedAt ?? new Date());
 
   if (input.payment.amount > 0) {
-    /*
-     * Both methods settle here, for the amount the agent typed.
-     *
-     * Nepali wallets have no auto-debit, so nobody can charge an owner on their
-     * behalf — what happens in the room is that the agent shows a QR, the owner
-     * scans it, and the agent reads the amount off the confirmation. That is a
-     * staff assertion rather than a gateway settlement, and it is the honest
-     * shape of the transaction while the gateway is mocked: a checkout link
-     * whose webhook will never fire would leave a paid owner looking at an
-     * unpaid invoice.
-     *
-     * `recordFieldCollection` writes `isMocked` on the QR rows so this can be
-     * unwound the day a real merchant account exists.
-     */
-    await recordFieldCollection(
+    // Cash only (online is paid through Softmato after publishing). Filed with
+    // Softmato as a claim; it books when their admin confirms it.
+    await fileFieldCash(
       invoice._id.toString(),
-      {
-        amount: input.payment.amount,
-        method: input.payment.method,
-        reference: input.payment.reference,
-      },
-      agent.userId,
+      { amount: input.payment.amount, reference: input.payment.reference },
+      { name: agent.name ?? "Field agent", userId: agent.userId },
     );
   } else {
     /*

@@ -7,6 +7,9 @@ import { connectToDatabase } from "@/lib/db";
 import { paisaToRupees } from "@/modules/billing/softmato/money";
 import { classify } from "@/modules/billing/softmato/transaction";
 import { settlePayment } from "@/modules/billing/subscription-payment.service";
+import { settleBookingFromSoftmato } from "@/modules/bookings/booking-softmato.service";
+import type { BookingRecord } from "@/modules/bookings/booking-views";
+import { BookingModel } from "@hostel/db/models/Booking";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
 
@@ -46,6 +49,14 @@ export async function applyWebhook(
 ): Promise<WebhookResult> {
   await connectToDatabase();
 
+  // Cash a Softmato admin rejected: the row that was waiting for it closes.
+  if (payload.event === "payment.failed") {
+    await SubscriptionPaymentModel.updateOne(
+      { softmatoTransactionNo: payload.transaction_id, status: "PENDING" },
+      { $set: { status: "FAILED" } },
+    );
+  }
+
   if (classify(payload.status) !== "settled" || payload.event !== "payment.success") {
     /*
      * Both conditions, not either. The event name says what happened and the
@@ -71,6 +82,19 @@ export async function applyWebhook(
   } | null>();
 
   if (!invoice) {
+    // Not a plan: a booking fee raised by `booking-softmato.service.ts`.
+    const booking = await BookingModel.findOne({
+      softmatoInvoiceNo: payload.invoice_id,
+    }).lean<BookingRecord | null>();
+
+    if (booking) {
+      const outcome = await settleBookingFromSoftmato(booking);
+
+      return outcome === "paid"
+        ? { action: "settled", paymentId: String(booking._id) }
+        : { action: "recorded", event: `booking_${outcome}` };
+    }
+
     /*
      * Answered 2xx by the caller regardless: an invoice we do not recognise is
      * not going to start being recognised on the fourth retry, and holding the
@@ -81,7 +105,20 @@ export async function applyWebhook(
     return { action: "ignored", reason: "no invoice for that number" };
   }
 
-  const amount = paisaToRupees(payload.amount);
+  return recordSoftmatoPayment(invoice, payload.transaction_id, paisaToRupees(payload.amount));
+}
+
+/**
+ * One Softmato payment, recorded once — from a webhook, or from the payments a
+ * server-side invoice read reports (`subscription-reconcile.service.ts`).
+ * Either way it carries Softmato's own transaction number, so the receipt the
+ * owner is shown is always theirs and never a stand-in of ours.
+ */
+export async function recordSoftmatoPayment(
+  invoice: { _id: Types.ObjectId; hostelId: Types.ObjectId; subscriptionId: Types.ObjectId },
+  transactionNo: string,
+  amount: number,
+): Promise<WebhookResult> {
 
   /*
    * Attach the transaction to the attempt that was waiting for it.
@@ -93,12 +130,12 @@ export async function applyWebhook(
    */
   await SubscriptionPaymentModel.findOneAndUpdate(
     { invoiceId: invoice._id, softmatoTransactionNo: null, status: "PENDING" },
-    { $set: { amount, softmatoTransactionNo: payload.transaction_id } },
+    { $set: { amount, softmatoTransactionNo: transactionNo } },
     { sort: { createdAt: -1 } },
   );
 
   const attached = await SubscriptionPaymentModel.findOne({
-    softmatoTransactionNo: payload.transaction_id,
+    softmatoTransactionNo: transactionNo,
   }).lean<{ _id: Types.ObjectId; status: string } | null>();
 
   /*
@@ -125,7 +162,7 @@ export async function applyWebhook(
           softmatoTransactionNo: null,
           status: "SETTLED",
         },
-        { $set: { softmatoTransactionNo: payload.transaction_id } },
+        { $set: { softmatoTransactionNo: transactionNo } },
         { new: true, sort: { createdAt: -1 } },
       ).lean<{ _id: Types.ObjectId } | null>();
 
@@ -148,7 +185,7 @@ export async function applyWebhook(
         hostelId: invoice.hostelId,
         invoiceId: invoice._id,
         method: "SOFTMATO",
-        softmatoTransactionNo: payload.transaction_id,
+        softmatoTransactionNo: transactionNo,
         status: "PENDING",
         subscriptionId: invoice.subscriptionId,
       })

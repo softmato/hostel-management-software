@@ -58,6 +58,7 @@ import {
   type TransferRecord,
 } from "@/modules/bookings/booking-views";
 import { BookingError } from "@/modules/bookings/booking.errors";
+import { raiseBookingInvoiceSoon } from "@/modules/bookings/booking-softmato.service";
 import { sealValue } from "@/modules/finance/gateway/secret-store";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { getSiteConfigSection } from "@/modules/platform-config/site-config.service";
@@ -452,6 +453,10 @@ export async function createBooking(
   // The invoice rides along with the mail that asks for the money.
   const invoicePaper = await bookingDocumentAttachment("invoice", created);
 
+  // Softmato raises the fee's invoice now, so the first email already carries its number.
+  await raiseBookingInvoiceSoon(created);
+  created = (await BookingModel.findById(created._id).lean<BookingRecord | null>()) ?? created;
+
   await notifyGuest(created, {
     action: "booking_invoice",
     attachments: invoicePaper ? [invoicePaper] : undefined,
@@ -519,7 +524,7 @@ async function loadBookingProof(assetId: string, actorId: string) {
   return asset;
 }
 
-async function loadOwnBooking(bookingId: string, principal: ApiPrincipal) {
+export async function loadOwnBooking(bookingId: string, principal: ApiPrincipal) {
   await connectToDatabase();
 
   const booking = Types.ObjectId.isValid(bookingId)
@@ -539,7 +544,7 @@ export async function expireUnpaidBooking(booking: BookingRecord, now = new Date
     actorId: null,
     from: ["AWAITING_PAYMENT"],
     now,
-    reason: "No payment screenshot arrived in time.",
+    reason: "No payment arrived in time.",
     status: "EXPIRED",
   });
 }

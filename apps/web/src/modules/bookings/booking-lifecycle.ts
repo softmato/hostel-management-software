@@ -12,6 +12,7 @@ import { BookingTransferModel } from "@hostel/db/models/BookingTransfer";
 import { HostelModel } from "@hostel/db/models/Hostel";
 
 import { logger } from "@/lib/logger";
+import { fileBookingRefund } from "@/modules/bookings/booking-refund.service";
 import { getBookingConfig } from "@/modules/bookings/booking-config";
 import { announceBookingsPaused } from "@/modules/bookings/booking-notify";
 import { DAY_MS, settleBooking, type BookingEnding } from "@/modules/bookings/booking-terms";
@@ -135,6 +136,8 @@ export async function endBooking(
 
   if (settlement) {
     await raiseTransfers(ended, settlement);
+    // The refund is tracked where the fee was taken: filed with Softmato too.
+    if (settlement.refund > 0) await fileBookingRefund(ended, settlement.refund);
   }
 
   await AuditLogModel.create({

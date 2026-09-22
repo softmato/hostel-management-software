@@ -388,20 +388,22 @@ export async function onPaymentSettled(input: {
   outstanding: number;
   ownerEmail?: string;
   planName: string;
-  receiptNumber: string;
+  /** Softmato's transaction number — their receipt — when the payment went through them. */
+  receiptNumber: string | null;
 }) {
   if (!input.ownerEmail) {
     return;
   }
 
-  const attachments = await attach("receipt", input.receiptNumber);
-
+  /*
+   * A confirmation, not a receipt: Softmato issues the receipt and emails it
+   * themselves, so nothing is attached here and the owner is told it follows.
+   */
   await deliver(
     "subscription_receipt",
     input.ownerEmail,
     subscriptionReceiptEmail({
       amount: input.amount,
-      attached: attachments.length > 0,
       dueBy: formatEmailDate(input.dueBy),
       hostelName: input.hostelName,
       invoiceNumber: input.invoiceNumber,
@@ -410,6 +412,5 @@ export async function onPaymentSettled(input: {
       planName: input.planName,
       receiptNumber: input.receiptNumber,
     }),
-    attachments,
   );
 }

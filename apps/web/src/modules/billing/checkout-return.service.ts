@@ -6,6 +6,8 @@ import { connectToDatabase } from "@/lib/db";
 import { fetchInvoiceDetail } from "@/modules/billing/billing-gateway";
 import { resolveOwnedHostel } from "@/modules/billing/subscription-access";
 import { reconcileInvoiceFromSoftmato } from "@/modules/billing/subscription-reconcile.service";
+import { assertAgentFiledHostel } from "@/modules/team/team.service";
+import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 
 /**
@@ -47,7 +49,14 @@ import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice"
  */
 
 export type ReturnState =
-  | { kind: "paid"; invoiceNumber: string; planName: string; total: number }
+  | {
+      /** `null` while the activation is still landing — the page says so. */
+      activeUntil: string | null;
+      kind: "paid";
+      invoiceNumber: string;
+      planName: string;
+      total: number;
+    }
   | {
       kind: "partial";
       balance: number;
@@ -60,9 +69,13 @@ export type ReturnState =
   | { kind: "pending_document"; invoiceNumber: string }
   | { kind: "unknown" };
 
+/** The stages the return page shows, announced as each one starts. */
+export type ReturnStep = "confirm" | "record" | "activate";
+
 export async function readReturnState(
-  userId: string,
+  viewer: { role: string; userId: string },
   invoiceNumber: string,
+  step: (name: ReturnStep) => void = () => {},
 ): Promise<ReturnState> {
   await connectToDatabase();
 
@@ -88,7 +101,11 @@ export async function readReturnState(
    * difference.
    */
   try {
-    await resolveOwnedHostel(invoice.hostelId.toString(), userId);
+    await resolveOwnedHostel(invoice.hostelId.toString(), viewer.userId).catch(() =>
+      // The agent who filed the hostel collects online from their own phone,
+      // so they are the one who lands here.
+      assertAgentFiledHostel(viewer, invoice.hostelId.toString()),
+    );
   } catch {
     return { kind: "unknown" };
   }
@@ -97,11 +114,16 @@ export async function readReturnState(
     return { invoiceNumber, kind: "pending_document" };
   }
 
+  step("confirm");
   const detail = await fetchInvoiceDetail(invoice.softmatoInvoiceNo).catch(
     () => null,
   );
 
   if (!detail) return { invoiceNumber, kind: "pending_document" };
+
+  const paid = detail.status === "paid";
+
+  if (paid) step("record");
 
   /*
    * Provision on what the read just said, before rendering it.
@@ -127,8 +149,20 @@ export async function readReturnState(
     return { invoiceNumber, kind: "void" };
   }
 
-  if (detail.status === "paid") {
+  if (paid) {
+    step("activate");
+
+    // Read back, not assumed: the reconcile above may have lost a race it is
+    // allowed to lose, and this is what the owner will see on their dashboard.
+    const subscription = await HostelSubscriptionModel.findOne({ hostelId: invoice.hostelId })
+      .select("currentPeriodEnd status")
+      .lean<{ currentPeriodEnd?: Date | null; status?: string } | null>();
+
     return {
+      activeUntil:
+        subscription?.status === "ACTIVE" && subscription.currentPeriodEnd
+          ? subscription.currentPeriodEnd.toISOString()
+          : null,
       invoiceNumber,
       kind: "paid",
       planName: invoice.planName,

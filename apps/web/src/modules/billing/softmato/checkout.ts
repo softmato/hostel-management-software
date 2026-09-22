@@ -37,10 +37,15 @@ import { softmato } from "./client";
  * from the URL.
  */
 
-/** Registered against the credential at `admin.softmato.com`, not chosen here. */
-export function checkoutReturnUrl(invoiceNumber: string): string {
-  const url = new URL(`${siteUrl()}/register-hostel/return`);
-  url.searchParams.set("invoice", invoiceNumber);
+/**
+ * Our host is registered against the credential at `admin.softmato.com`; the
+ * path is ours. One return page serves every platform payment, told apart by
+ * which reference it carries — `invoice` for a plan, `booking` for a booking.
+ */
+export function checkoutReturnUrl(ref: { booking: string } | { invoice: string }): string {
+  const url = new URL(`${siteUrl()}/checkout/return`);
+
+  for (const [key, value] of Object.entries(ref)) url.searchParams.set(key, value);
 
   return url.toString();
 }
@@ -57,6 +62,6 @@ export async function openSoftmatoCheckout(
 ): Promise<CheckoutSession> {
   return softmato().createCheckout({
     invoice_id: input.softmatoInvoiceId,
-    return_url: checkoutReturnUrl(input.invoiceNumber),
+    return_url: checkoutReturnUrl({ invoice: input.invoiceNumber }),
   });
 }

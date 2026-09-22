@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { requireApiPrincipal } from "@/lib/api-auth";
-import { handleRouteError, successResponse } from "@/lib/api-response";
+import { handleRouteError, progressResponse } from "@/lib/api-response";
 import { resolveOwnedHostel } from "@/modules/billing/subscription-access";
 import { openSubscriptionCheckout } from "@/modules/billing/subscription-payment.service";
 import { invoiceIdFor } from "@/modules/billing/subscription.service";
@@ -40,10 +40,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     await resolveOwnedHostel(hostelId, principal.userId);
 
-    const invoiceId = await invoiceIdFor(hostelId);
-    const checkout = await openSubscriptionCheckout(invoiceId, principal.userId);
-
-    return successResponse(checkout, "Checkout opened");
+    return progressResponse(
+      request,
+      async (step) => openSubscriptionCheckout(await invoiceIdFor(hostelId), principal.userId, step),
+      "Checkout opened",
+    );
   } catch (error) {
     return handleRouteError(error);
   }

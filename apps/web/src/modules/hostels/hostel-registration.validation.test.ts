@@ -163,14 +163,18 @@ describe("teamHostelRegistrationSchema", () => {
     ).toBe(false);
   });
 
-  it("takes a QR payment as a settled amount, like cash", () => {
-    const parsed = teamHostelRegistrationSchema.parse({
-      ...team,
-      payment: { amount: 4500, method: "SOFTMATO", reference: "TXN-8812" },
-    });
+  it("refuses an online payment typed in by the agent — Softmato confirms those", () => {
+    expect(
+      teamHostelRegistrationSchema.safeParse({
+        ...team,
+        payment: { amount: 4500, method: "SOFTMATO", reference: "TXN-8812" },
+      }).success,
+    ).toBe(false);
 
-    expect(parsed.payment.amount).toBe(4500);
-    expect(parsed.payment.reference).toBe("TXN-8812");
+    expect(
+      teamHostelRegistrationSchema.parse({ ...team, payment: { amount: 0, method: "SOFTMATO" } })
+        .payment.method,
+    ).toBe("SOFTMATO");
   });
 
   it("allows collecting nothing — the hostel still publishes and the price is owed", () => {

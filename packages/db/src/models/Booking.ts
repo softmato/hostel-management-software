@@ -148,6 +148,8 @@ const bookingSchema = new Schema(
 
     invoiceNumber: { required: true, trim: true, type: String },
     receiptNumber: { default: null, trim: true, type: String },
+    /** Softmato's invoice for the fee, raised when the guest first presses Pay. */
+    softmatoInvoiceNo: { default: null, trim: true, type: String },
 
     status: { default: "AWAITING_PAYMENT", enum: BOOKING_STATUSES, required: true, type: String },
     isOpen: { default: true, required: true, type: Boolean },
@@ -200,6 +202,8 @@ bookingSchema.index({ userId: 1 }, { partialFilterExpression: { isOpen: true }, 
 bookingSchema.index({ userId: 1, createdAt: -1 });
 bookingSchema.index({ hostelId: 1, status: 1, createdAt: -1 });
 bookingSchema.index({ status: 1, paymentDueBy: 1 });
+// The webhook finds the booking by the only handle Softmato sends back.
+bookingSchema.index({ softmatoInvoiceNo: 1 }, { sparse: true });
 bookingSchema.index({ status: 1, hostelAnswerBy: 1 });
 bookingSchema.index({ status: 1, holdEndsAt: 1 });
 bookingSchema.index({ hostelId: 1, hostelStrike: 1, endedAt: -1 });

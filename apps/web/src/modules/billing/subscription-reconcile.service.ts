@@ -5,6 +5,8 @@ import { Types } from "mongoose";
 import { connectToDatabase } from "@/lib/db";
 import { fetchInvoiceDetail } from "@/modules/billing/billing-gateway";
 import { settlePayment } from "@/modules/billing/subscription-payment.service";
+import { paisaToRupees } from "@/modules/billing/softmato/money";
+import { recordSoftmatoPayment } from "@/modules/billing/subscription-webhook.service";
 import { outstandingFor } from "@/modules/billing/subscription.service";
 import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice";
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
@@ -70,11 +72,31 @@ export async function reconcileInvoiceFromSoftmato(
   if (invoice.status === "VOID") return { kind: "nothing_new" };
   if (!invoice.softmatoInvoiceNo) return { kind: "no_document" };
 
-  const detail = await fetchInvoiceDetail(invoice.softmatoInvoiceNo).catch(
-    () => null,
-  );
+  const detail = await fetchInvoiceDetail(invoice.softmatoInvoiceNo).catch(() => null);
 
   if (!detail) return { kind: "no_document" };
+
+  /*
+   * Softmato names each payment behind `paid_minor` now. Recorded one by one
+   * under its own transaction number — the same path a webhook takes — so the
+   * owner's receipt is Softmato's, and the webhook that follows finds the work
+   * done. The arithmetic below is only for a Softmato too old to say.
+   */
+  if (detail.payments) {
+    let settled = 0;
+
+    for (const payment of detail.payments) {
+      const result = await recordSoftmatoPayment(
+        invoice,
+        payment.transaction_id,
+        paisaToRupees(payment.amount_minor),
+      );
+
+      if (result.action === "settled") settled += paisaToRupees(payment.amount_minor);
+    }
+
+    return settled > 0 ? { amount: settled, kind: "settled" } : { kind: "nothing_new" };
+  }
 
   /*
    * Their paisa against our whole rupees. Softmato's `paid_minor` is the gross

@@ -17,6 +17,8 @@ import {
 } from "@/modules/billing/subscription.service";
 import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
+import { unlessSoftmatoDown } from "@/modules/billing/softmato/outage";
+import { siteUrl } from "@/lib/site";
 import { onPaymentSettled } from "@/modules/hostels/hostel-registration.events";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { creditTeamCommission } from "@/modules/team/team-commission.service";
@@ -97,17 +99,18 @@ async function loadInvoice(invoiceId: string) {
 export async function openSubscriptionCheckout(
   invoiceId: string,
   actorId: string,
+  /** Announces each stage as it starts, for the hand-off screen. */
+  step: (name: "invoice" | "session") => void = () => {},
 ) {
-  // Online payment is not live yet. Until Softmato is configured on this
-  // deployment, plans are paid through the manual QR lane only.
   if (!isSoftmatoConfigured()) {
     throw new SubscriptionError(
-      "Online payment is not available yet. Pay by QR and attach your payment screenshot.",
+      "Online payment is not set up on this deployment yet.",
       "ONLINE_PAYMENT_UNAVAILABLE",
       503,
     );
   }
 
+  step("invoice");
   await connectToDatabase();
 
   const loaded = await loadInvoice(invoiceId);
@@ -130,24 +133,48 @@ export async function openSubscriptionCheckout(
   }
 
   /*
-   * Required here, unlike at issue time: a checkout is addressed by Softmato's
-   * invoice id and reads the amount from it, so without the document there is
-   * nothing to check out against.
+   * Softmato unreachable: the payer is told so and emailed a link once it is
+   * back (`softmato/outage.ts`), rather than shown a raw gateway error.
    */
-  const invoice = await ensureInvoiceRaised(loaded, { required: true });
+  const { invoice, session } = await unlessSoftmatoDown(
+    async () => {
+      const contact = await resolveOwnerEmail(loaded.hostelId);
 
-  if (!invoice.softmatoInvoiceId) {
-    throw new SubscriptionError(
-      "This invoice has no payment document yet. Try again in a moment.",
-      "INVOICE_NOT_RAISED",
-      503,
-    );
-  }
+      return {
+        email: contact.email || null,
+        kind: "PLAN_PAYMENT",
+        link: `${siteUrl()}/hostel-admin/billing`,
+        name: contact.hostelName || null,
+        ref: String(loaded._id),
+      };
+    },
+    async () => {
+      /*
+       * Required here, unlike at issue time: a checkout is addressed by
+       * Softmato's invoice id and reads the amount from it, so without the
+       * document there is nothing to check out against.
+       */
+      const raised = await ensureInvoiceRaised(loaded, { required: true });
 
-  const session = await openCheckoutSession({
-    invoiceNumber: invoice.invoiceNumber,
-    softmatoInvoiceId: invoice.softmatoInvoiceId,
-  });
+      if (!raised.softmatoInvoiceId) {
+        throw new SubscriptionError(
+          "This invoice has no payment document yet. Try again in a moment.",
+          "INVOICE_NOT_RAISED",
+          503,
+        );
+      }
+
+      step("session");
+
+      return {
+        invoice: raised,
+        session: await openCheckoutSession({
+          invoiceNumber: raised.invoiceNumber,
+          softmatoInvoiceId: raised.softmatoInvoiceId,
+        }),
+      };
+    },
+  );
 
   const payment = await SubscriptionPaymentModel.create({
     amount: outstanding,
@@ -166,80 +193,6 @@ export async function openSubscriptionCheckout(
     expiresAt: session.expiresAt,
     payment: { amount: outstanding, id: String(payment._id) },
   };
-}
-
-/* ── Cash ──────────────────────────────────────────────────────────────── */
-
-/**
- * Records money an agent took in the field, already settled.
- *
- * Two methods arrive here and they differ only in who is holding the money
- * afterwards. `CASH` is notes in the agent's hand. `SOFTMATO` is the owner
- * scanning a QR while the agent watches — the funds go to the platform's
- * account rather than the agent's pocket, so nothing is owed back, but the
- * *claim* that it happened comes from the same person either way.
- *
- * ## Why a QR payment settles here rather than waiting for a webhook
- *
- * Because there is no webhook yet. The gateway is mocked, so the alternative is
- * a `PENDING` row that nothing will ever confirm and an owner who paid staring
- * at an unpaid invoice. An honest manual entry beats a promise the system
- * cannot keep — and `isMocked` is written on the row so it can never later be
- * mistaken for a reconciled settlement. When a real merchant account lands,
- * this branch narrows back to cash and the QR returns to the rail.
- *
- * `collectedBy` is required on both and is the field the team roster reads to
- * answer "who collected how much": a row without one would be money the
- * platform received from nobody.
- */
-export async function recordFieldCollection(
-  invoiceId: string,
-  input: { amount: number; method: "CASH" | "SOFTMATO"; reference?: string },
-  agentId: string,
-) {
-  await connectToDatabase();
-
-  if (!agentId) {
-    throw new SubscriptionError(
-      "A field collection has to be attributed to the person who took it.",
-      "COLLECTOR_REQUIRED",
-      422,
-    );
-  }
-
-  const invoice = await loadInvoice(invoiceId);
-  const { outstanding } = await outstandingFor(invoice);
-
-  if (input.amount > outstanding) {
-    throw new SubscriptionError(
-      `That is more than the ${outstanding} still owed on this invoice.`,
-      "AMOUNT_EXCEEDS_OUTSTANDING",
-      422,
-    );
-  }
-
-  const payment = await SubscriptionPaymentModel.create({
-    amount: input.amount,
-    collectedBy: agentId,
-    hostelId: invoice.hostelId,
-    invoiceId: invoice._id,
-    /*
-     * A QR collection is mocked money until there is a gateway to corroborate
-     * it. Cash never claims to be on a rail in the first place, so it is not
-     * marked — `isMocked` means "this asserts a gateway settlement that did not
-     * go through a gateway", which is true of exactly one of these two.
-     */
-    isMocked: input.method === "SOFTMATO",
-    method: input.method,
-    recordedBy: agentId,
-    status: "PENDING",
-    subscriptionId: invoice.subscriptionId,
-  });
-
-  return settlePayment(String(payment._id), {
-    actorId: agentId,
-    gatewayReference: input.reference,
-  });
 }
 
 /* ── Settling ──────────────────────────────────────────────────────────── */
@@ -398,16 +351,13 @@ export async function settlePayment(
   );
 
   /*
-   * **A receipt exists either way now.**
-   *
-   * When Softmato issued one, theirs is the document and this does nothing.
-   * When they did not — a cash payment, or their API unreachable — we number
-   * and print our own, so a settled payment is never a payment with no paper.
-   * The URL above is our route in both cases; it resolves whichever document
-   * actually exists (`documents/deliver.ts`), so nothing downstream has to know
-   * which side printed it.
+   * **Softmato issues the receipt.** For any payment that went through them —
+   * online, or cash their admin confirmed — theirs is the only one, even when
+   * it could not be read just now: the route above fetches it once they
+   * answer. Only money Softmato never saw (cash or a proof approved here before
+   * the move) keeps the receipt this app printed at the time.
    */
-  if (!receipt) {
+  if (!receipt && payment.method !== "SOFTMATO" && !payment.softmatoTransactionNo) {
     await ensureLocalReceiptNumber(payment._id);
   }
 
@@ -441,7 +391,8 @@ export async function settlePayment(
     outstanding: balance.outstanding,
     ownerEmail: billingContact.email,
     planName: invoice.planName,
-    receiptNumber,
+    // Softmato's number, when it has one: the receipt the owner is sent is theirs.
+    receiptNumber: payment.softmatoTransactionNo ?? null,
   });
 
   await AuditLogModel.create({

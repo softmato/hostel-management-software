@@ -13,7 +13,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { useSiteConfig } from "@/components/site-config-provider";
-import { PayPlanPanel } from "@/app/_components/hostel-admin-pay-plan";
+import { CheckoutHandoffButton } from "@/app/_components/checkout-handoff";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 import {
@@ -300,44 +300,18 @@ function PaymentPanel({
   hostelId: string;
   state: SubscriptionState;
 }) {
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState("");
-
   const invoice = state.invoice;
 
   if (!invoice) {
     return null;
   }
 
-  /**
-   * Opens a checkout and sends the owner to it.
-   *
-   * There is no second step. The panel used to show a mocked QR and a button
-   * saying *I have paid*, which recorded the payment on the owner's word —
-   * defensible only while the gateway was pretend. Money is now confirmed by a
-   * signed webhook from Softmato, and by a server-side read on the page the
-   * owner comes back to. Nothing this component does can mark an invoice paid.
-   *
-   * The session it opens lives thirty minutes, so it is created on the click
-   * and used immediately rather than fetched when the panel renders.
+  /*
+   * One press hands the owner to Softmato checkout — see `checkout-handoff`.
+   * Nothing this component does can mark an invoice paid: money is confirmed
+   * by a signed webhook from Softmato, and by a server-side read on the page
+   * the owner comes back to. The session is minted on the press, never ahead.
    */
-  async function payNow() {
-    setWorking(true);
-    setError("");
-
-    try {
-      const result = await browserApi<{ checkoutUrl: string }>(
-        `/api/v1/hostel-registration/${hostelId}/pay`,
-        { method: "POST" },
-      );
-
-      window.location.assign(result.checkoutUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start the payment.");
-      setWorking(false);
-    }
-  }
-
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-muted/30 p-4">
@@ -362,27 +336,14 @@ function PaymentPanel({
         ) : null}
       </div>
 
-      {error ? (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-
-      <button
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand-teal px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-teal/90 disabled:opacity-60 sm:w-auto"
-        disabled={busy || working}
-        onClick={payNow}
-        type="button"
-      >
-        {working ? <Loader2 className="size-4 animate-spin" /> : null}
-        Pay {rupees(state.outstanding)}
-      </button>
-
-      <p className="text-xs text-muted-foreground">
-        You will be taken to Softmato, who take the payment and issue the
-        invoice and receipt. Your plan activates when the payment reaches them
-        — not when you return to this page.
-      </p>
+      {busy ? null : (
+        <CheckoutHandoffButton
+          className="w-full sm:w-auto"
+          endpoint={`/api/v1/hostel-registration/${hostelId}/pay`}
+          label={`Pay ${rupees(state.outstanding)}`}
+          preparing="Setting up your plan payment"
+        />
+      )}
     </div>
   );
 }
@@ -404,22 +365,19 @@ export function HostelRegistrationProgress({
   onRefresh: () => Promise<void> | void;
 }) {
   const [state, setState] = useState<SubscriptionState | null>(null);
-  // A Softmato checkout only when this deployment can open one; otherwise the
-  // manual QR lane, the same one the billing page and the app use.
-  const [onlinePayment, setOnlinePayment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const fetchState = useCallback(async () => {
     try {
-      return await browserApi<{ onlinePayment?: boolean; state: SubscriptionState | null }>(
+      return await browserApi<{ state: SubscriptionState | null }>(
         `/api/v1/hostel-registration/${application.hostelId}/state`,
       );
     } catch {
       // A billing read that fails must not blank the status page — the
       // application's own status is still worth showing on its own.
-      return { onlinePayment: false, state: null };
+      return { state: null };
     }
   }, [application.hostelId]);
 
@@ -434,7 +392,6 @@ export function HostelRegistrationProgress({
     const result = await fetchState();
 
     setState(result.state);
-    setOnlinePayment(Boolean(result.onlinePayment));
     setLoading(false);
   }, [fetchState]);
 
@@ -451,8 +408,7 @@ export function HostelRegistrationProgress({
       }
 
       setState(result.state);
-      setOnlinePayment(Boolean(result.onlinePayment));
-      setLoading(false);
+        setLoading(false);
     })();
 
     return () => {
@@ -579,20 +535,11 @@ export function HostelRegistrationProgress({
                 Your listing goes live the moment this is paid.
               </p>
               <div className="mt-5">
-                {onlinePayment ? (
-                  <PaymentPanel
-                    busy={busy}
-                    hostelId={application.hostelId}
-                    state={state!}
-                  />
-                ) : (
-                  <PayPlanPanel
-                    onPaid={() => {
-                      void load();
-                      void onRefresh();
-                    }}
-                  />
-                )}
+                <PaymentPanel
+                  busy={busy}
+                  hostelId={application.hostelId}
+                  state={state!}
+                />
               </div>
 
               {/*

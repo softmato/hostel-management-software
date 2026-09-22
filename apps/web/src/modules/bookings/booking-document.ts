@@ -85,6 +85,38 @@ export function bookingDocumentLayout(
     name: booking.guest.name,
   });
 
+  // Softmato issues the invoice and receipt for the fee; ours is the booking itself.
+  if (kind === "invoice" && booking.softmatoInvoiceNo) {
+    const paid = Boolean(booking.paymentVerifiedAt);
+
+    return {
+      against: { label: "Invoice (Softmato)", value: booking.softmatoInvoiceNo },
+      amount: booking.fee,
+      amountLabel: paid ? "Booking fee paid" : "Booking fee due",
+      currency,
+      date: booking.createdAt,
+      dateLabel: "Booked on",
+      fields: [
+        { label: "Hostel", value: booking.hostelSnapshot.name },
+        { label: "Room", value: booking.roomType },
+        { label: "Monthly rent", value: money(booking.monthlyRent) },
+        {
+          label: "Status",
+          value: paid
+            ? `Paid - Softmato receipt ${booking.receiptNumber ?? ""}`.trim()
+            : `Unpaid - pay by ${documentInstant(booking.paymentDueBy)}`,
+        },
+      ],
+      footerNote: "Booking confirmation. The invoice and receipt for the fee are issued by Softmato.",
+      issuer,
+      notes: refundPolicyNotes(booking, money),
+      number: booking.code,
+      numberLabel: "Booking",
+      party: guestParty("Booked by"),
+      title: "Booking Confirmation",
+    };
+  }
+
   if (kind === "invoice") {
     const paid = Boolean(booking.paymentVerifiedAt);
 
