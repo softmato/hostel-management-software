@@ -1319,7 +1319,7 @@ export function TeamRegisterHostelPage() {
       case 6:
         return idProofReady;
       case 7:
-        return Boolean(plan);
+        return Boolean(plan) && collecting > 0;
       default:
         return false;
     }
@@ -1397,6 +1397,14 @@ export function TeamRegisterHostelPage() {
           (numberValue(referralDiscount) ?? 0) <= (numberValue(admissionFee) ?? 0),
       },
       { field: "plan", message: "Pick the plan the owner is buying.", valid: Boolean(plan) },
+      {
+        field: "amount",
+        message:
+          method === "SOFTMATO"
+            ? "Take the online payment. A hostel does not publish unpaid."
+            : "Enter the cash collected. A hostel does not publish unpaid.",
+        valid: collecting > 0,
+      },
     ];
 
     return checks
@@ -1738,6 +1746,13 @@ export function TeamRegisterHostelPage() {
   }
 
   function goTo(next: number) {
+    // Review is only reachable once money is in: an unpaid hostel stops on Plan & payment.
+    if (next >= STEPS.length && collecting <= 0) {
+      focusField("amount");
+
+      return;
+    }
+
     if (step === STEPS.length || next >= STEPS.length) {
       setReviewed(true);
     }
@@ -1905,21 +1920,11 @@ export function TeamRegisterHostelPage() {
       },
       mapLink: mapLink.trim() || undefined,
       name: hostelName.trim(),
-      /*
-       * Online sends no amount: the server reads it off the payment row. Any
-       * open or paid row goes with it — an unpaid one too, so a payment the
-       * owner finishes after publishing still lands on this hostel.
-       */
+      // Online sends no amount: the server reads it off the paid row.
       payment:
         method === "CASH"
           ? { amount: collecting, method, reference: paymentReference.trim() || undefined }
-          : {
-              amount: 0,
-              method,
-              ...(prepayment && (prepayment.status === "OPEN" || prepayment.status === "PAID")
-                ? { prepaymentId: prepayment.id }
-                : {}),
-            },
+          : { amount: 0, method, ...(paidOnline ? { prepaymentId: paidOnline.id } : {}) },
       photos: photos
         .filter((photo) => photo.url && !photo.uploading)
         .map((photo) => ({
@@ -2113,15 +2118,10 @@ export function TeamRegisterHostelPage() {
       actionLabel: "Publish the hostel",
       description: [
         `${hostelName.trim()} goes live now, on the ${plan?.name} plan at ${rupees(price)}.`,
+        // Only reached with money in (`blocking`), so it is one or the other.
         paidOnline
           ? `${rupees(paidOnline.amount)} paid online${paidOnline.reference ? ` (${paidOnline.reference})` : ""} is attached to it.`
-          : method === "SOFTMATO"
-            ? prepayment?.status === "OPEN"
-              ? "The online payment has not arrived. If the owner finishes it, it is added to this hostel by itself."
-              : "Nothing collected today."
-            : collecting > 0
-              ? `${rupees(collecting)} cash is filed with Softmato; the owner's receipt follows once it is confirmed.`
-              : "Nothing collected today.",
+          : `${rupees(collecting)} cash is filed with Softmato; the owner's receipt follows once it is confirmed.`,
         shortfall > 0
           ? `${rupees(shortfall)} becomes a due on the owner's dashboard.`
           : "Nothing left owing.",
@@ -3233,7 +3233,7 @@ export function TeamRegisterHostelPage() {
               </Card>
 
               <Card
-                subtitle="Full, part, or nothing — the hostel publishes either way."
+                subtitle="Full or part. The hostel does not publish until some of it is paid."
                 title="Payment"
               >
                 <div className="flex gap-2">

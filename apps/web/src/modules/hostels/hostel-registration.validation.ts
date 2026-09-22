@@ -217,14 +217,15 @@ export type RegistrationPlanChoice = z.infer<typeof registrationPlanChoiceSchema
  * and then lost signal before recording the cash would leave a published hostel
  * with no trace of the money that was handed over.
  *
- * `amount` may legitimately be **zero**: an agent is allowed to file a hostel
- * and collect nothing that day. Zero is not a payment, so no payment row is
- * written for it — the whole plan price simply becomes the due.
+ * A hostel does not publish unpaid: cash has to be more than zero, and online
+ * has to be a paid prepayment (checked in `registerTeamHostelApplication`,
+ * because only the server can ask Softmato). Part payment is allowed; the rest
+ * becomes the due.
  */
 export const teamHostelRegistrationSchema = registrationFields
   .extend({
     payment: z.object({
-      /** Whole rupees actually taken. Zero means nothing was collected. */
+      /** Whole rupees actually taken. Always zero for online — read off the prepayment. */
       amount: z.coerce.number().int().min(0).max(10_000_000),
       /**
        * `CASH` is filed with Softmato as a claim for the amount the agent typed
@@ -245,6 +246,10 @@ export const teamHostelRegistrationSchema = registrationFields
     })
       .refine((payment) => payment.method === "CASH" || payment.amount === 0, {
         message: "Online payments are made through Softmato checkout, not typed in.",
+        path: ["amount"],
+      })
+      .refine((payment) => payment.method === "SOFTMATO" || payment.amount > 0, {
+        message: "Enter the cash collected. A hostel does not publish unpaid.",
         path: ["amount"],
       })
       .refine((payment) => payment.method === "SOFTMATO" || !payment.prepaymentId, {

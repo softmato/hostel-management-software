@@ -1489,6 +1489,16 @@ export async function registerTeamHostelApplication(
     ? await claimTeamPrepayment(input.payment.prepaymentId, agent, input.plan)
     : null;
 
+  // Cash of zero is refused by the schema; online counts only once Softmato says paid.
+  if (input.payment.method === "SOFTMATO" && !prepayment?.paid) {
+    if (prepayment) await releaseTeamPrepayment(prepayment);
+    throw new HostelServiceError(
+      "The online payment has not arrived. Take the payment before publishing.",
+      "PAYMENT_REQUIRED",
+      402,
+    );
+  }
+
   try {
     return await fileTeamRegistration(input, agent, prepayment);
   } catch (error) {

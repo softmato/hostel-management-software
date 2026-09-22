@@ -37,8 +37,14 @@ export async function connectToDatabase() {
    * be replayed to every later request on this warm instance until it recycled —
    * a single blip in the Atlas proxy became a run of 500s across unrelated routes.
    */
+  /*
+   * Every warm serverless instance holds its own pool, and M0 refuses new
+   * connections at 500 cluster-wide. The driver default (100 per pool, never
+   * idled out) let a burst of instances hold the whole budget — Atlas alerted
+   * on 2026-09-22. A request past the cap waits for a socket; it does not fail.
+   */
   cached.promise ??= mongoose
-    .connect(uri, { bufferCommands: false })
+    .connect(uri, { bufferCommands: false, maxPoolSize: 10, maxIdleTimeMS: 30_000 })
     .catch((error: unknown) => {
       cached.promise = null;
       throw error;

@@ -177,13 +177,22 @@ describe("teamHostelRegistrationSchema", () => {
     ).toBe("SOFTMATO");
   });
 
-  it("allows collecting nothing — the hostel still publishes and the price is owed", () => {
+  it("refuses cash of nothing — a hostel does not publish unpaid", () => {
+    expect(
+      teamHostelRegistrationSchema.safeParse({
+        ...team,
+        payment: { amount: 0, method: "CASH" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("allows part cash — the rest is owed", () => {
     expect(
       teamHostelRegistrationSchema.parse({
         ...team,
-        payment: { amount: 0, method: "CASH" },
+        payment: { amount: 500, method: "CASH" },
       }).payment.amount,
-    ).toBe(0);
+    ).toBe(500);
   });
 
   it("still requires a plan, because the plan is a step in that form", () => {
