@@ -13,6 +13,7 @@ import {
   verifyOtpChallenge,
 } from "@/modules/auth/auth.service";
 import { daysLeftThrough, getBillingHistory } from "@/modules/billing/billing-history.service";
+import { planAfterPayment } from "@/modules/billing/subscription.service";
 import {
   getPlanPaymentInstructions,
   submitPlanPaymentClaim,
@@ -223,15 +224,28 @@ async function checkoutView(hostelId: string, invoice: CheckoutInvoice | null) {
   const invoiceEnd = invoice?.periodEnd ?? null;
   const runsUntil =
     runningEnd && (!invoiceEnd || runningEnd.getTime() >= invoiceEnd.getTime()) ? runningEnd : invoiceEnd;
+  // Settlement keeps the higher plan (`planAfterPayment`); the months bought are added to it.
+  const held = history.plan;
+  const keeps = Boolean(
+    invoice &&
+      held?.planId &&
+      (await planAfterPayment({ cycleMonths: held.cycleMonths ?? null, planId: held.planId }, invoice)) ===
+        "current",
+  );
+  const bought = invoice?.cycleMonths ?? 0;
 
   return {
     afterPayment: invoice
       ? {
-          cycleLabel:
-            history.invoices.find((row) => row.invoiceNumber === invoice.invoiceNumber)?.cycleLabel ??
-            invoice.cycle,
+          cycleLabel: keeps
+            ? (held?.cycleLabel ?? "")
+            : (history.invoices.find((row) => row.invoiceNumber === invoice.invoiceNumber)?.cycleLabel ??
+              invoice.cycle),
           daysRemaining: daysLeftThrough(runsUntil),
-          planName: invoice.planName,
+          note: keeps
+            ? `${bought} ${bought === 1 ? "month" : "months"} of ${invoice.planName} added to your ${held?.planName} · ${held?.cycleLabel} plan.`
+            : null,
+          planName: keeps ? (held?.planName ?? invoice.planName) : invoice.planName,
           runsUntil: runsUntil?.toISOString() ?? null,
         }
       : null,

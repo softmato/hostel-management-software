@@ -16,6 +16,7 @@ import {
   type InvoiceRecord as SubscriptionInvoiceRecord,
 } from "@/modules/billing/subscription.service";
 import { checkoutDocumentFor } from "@/modules/billing/balance-document";
+import { planAfterPayment } from "@/modules/billing/subscription.service";
 import { ensureLocalReceiptNumber } from "@/modules/billing/documents/issue";
 import { isSoftmatoConfigured } from "@/modules/billing/softmato/config";
 import { unlessSoftmatoDown } from "@/modules/billing/softmato/outage";
@@ -460,7 +461,10 @@ async function applySettlement(
      * so an abandoned checkout never changed anything. Every other invoice was
      * raised from the subscription's own plan, and this is a no-op for it.
      */
-    if (invoice.planId !== subscription.planId || invoice.cycle !== subscription.cycle) {
+    if (
+      (invoice.planId !== subscription.planId || invoice.cycle !== subscription.cycle) &&
+      (await planAfterPayment(subscription, invoice)) === "invoice"
+    ) {
       await HostelSubscriptionModel.updateOne(
         { _id: subscription._id },
         {

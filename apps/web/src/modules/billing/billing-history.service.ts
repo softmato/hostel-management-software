@@ -127,6 +127,7 @@ export interface BillingPlan {
   /** `monthly` / `halfYearly` / `annual` — what "Pay for this plan" renews at. */
   cycle: string | null;
   cycleLabel: string | null;
+  cycleMonths: number | null;
   /**
    * The last instant the plan covers — the end of a Nepal day. Null until the
    * plan starts, which is not the same as until it is paid: a team hostel's
@@ -363,6 +364,7 @@ export async function getBillingHistory(
           amountDue: openDue,
           amountPaid: openPaid,
           cycle: subscription.cycle ?? null,
+          cycleMonths: subscription.cycleMonths ?? null,
           cycleLabel: subscription.cycle
             ? cycleLabel(subscription.cycle, subscription.cycleMonths)
             : null,

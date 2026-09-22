@@ -22,6 +22,7 @@ import { SubscriptionInvoiceModel } from "@hostel/db/models/SubscriptionInvoice"
 import { SubscriptionPaymentModel } from "@hostel/db/models/SubscriptionPayment";
 import { currentBsPeriod, hostelDayEnd } from "@hostel/shared/calendar/bs";
 import {
+  planRank,
   cycleForMonths,
   cycleMonths,
   cycleTotal,
@@ -569,12 +570,41 @@ export async function invoiceMonthsLocked(invoice: {
   source?: string;
   status: string;
 }) {
+  /*
+   * Locked once money is in or claimed. A Softmato document and abandoned
+   * checkout attempts do not lock it: Pay then addresses the new amount through
+   * a balance document (`checkoutDocumentFor`), which webhooks already match.
+   */
   return (
     invoice.status !== "OPEN" ||
     invoice.source === "TEAM" ||
-    Boolean(invoice.softmatoInvoiceId) ||
-    Boolean(await SubscriptionPaymentModel.exists({ invoiceId: invoice._id }))
+    Boolean(
+      await SubscriptionPaymentModel.exists({
+        invoiceId: invoice._id,
+        $nor: [{ method: "SOFTMATO", status: { $in: ["PENDING", "FAILED"] } }],
+      }),
+    )
   );
+}
+
+/**
+ * The plan a hostel is on once an invoice is paid: the higher of the two. A
+ * higher plan takes over with the cycle bought; the same plan keeps the longer
+ * cycle; a lower plan only adds its months to the plan in hand.
+ */
+export async function planAfterPayment(
+  current: { cycleMonths?: number | null; planId?: string | null },
+  invoice: { cycleMonths?: number | null; planId: string },
+): Promise<"invoice" | "current"> {
+  if (!current.planId) return "invoice";
+
+  const catalog = await getSiteConfigSection("plans");
+  const bought = planRank(catalog, invoice.planId);
+  const held = planRank(catalog, current.planId);
+
+  if (bought !== held) return bought > held ? "invoice" : "current";
+
+  return (invoice.cycleMonths ?? 0) > (current.cycleMonths ?? 0) ? "invoice" : "current";
 }
 
 /** The self-serve checkout's month picker: re-prices the open invoice for `months` (1–12). */
@@ -611,7 +641,7 @@ export async function changeOpenInvoiceMonths(
   );
 
   await SubscriptionInvoiceModel.updateOne(
-    { _id: open._id, softmatoInvoiceId: null, status: "OPEN" },
+    { _id: open._id, status: "OPEN" },
     {
       $set: {
         amount: priced.cycleTotal,

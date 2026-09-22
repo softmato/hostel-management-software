@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 
 import { formatBsAdDate } from "@hostel/shared/calendar/bs";
-import { billingCycles, cycleTotal, getPlan, monthsTotal, type BillingCycle } from "@hostel/shared/plans/catalog";
+import {
+  billingCycles,
+  cycleTotal,
+  getPlan,
+  monthsTotal,
+  planRank,
+  type BillingCycle,
+} from "@hostel/shared/plans/catalog";
 
 import { useSiteConfig } from "@/components/site-config-provider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,6 +60,8 @@ type History = { invoices: BillingInvoiceRow[]; payments: BillingPaymentRow[]; p
 type AfterPayment = {
   cycleLabel: string;
   daysRemaining: number | null;
+  /** Set when the months bought are added to a higher plan already held. */
+  note: string | null;
   planName: string;
   runsUntil: string | null;
 };
@@ -301,6 +310,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
   const price = plan ? cycleTotal(plan, cycle) : 0;
   // The plan on the invoice, which the pay step can switch.
   const invoicePlan = invoice ? getPlan(catalog, invoice.planId) : undefined;
+  const heldPlanId = trace?.history.plan?.planId ?? "";
   const cycleLabel = billingCycles(catalog).find((option) => option.id === cycle)?.label ?? cycle;
   const openRow = trace?.history.invoices.find((row) => row.invoiceNumber === invoice?.invoiceNumber) ?? null;
   // The open invoice is for something other than what was picked here.
@@ -527,7 +537,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                     1–5 months at the monthly price, 6–11 at the six-month rate, 12 at
                     the annual. Re-priced on the server; the figures here are the same function.
                   */}
-                  {!reused && invoice.months && !invoice.monthsLocked ? (
+                  {invoice.months && !invoice.monthsLocked ? (
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="block text-sm font-semibold text-foreground">
                         Plan
@@ -537,7 +547,8 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                           onChange={(event) => reprice({ months: invoice.months ?? 12, planId: event.target.value })}
                           value={invoice.planId}
                         >
-                          {catalog.plans.map((option) => (
+                          {/* Never below the plan held: those months would only extend it. */}
+                          {catalog.plans.slice(Math.max(0, planRank(catalog, heldPlanId))).map((option) => (
                             <option key={option.id} value={option.id}>
                               {option.name}
                             </option>
@@ -564,7 +575,7 @@ export function PlanCheckoutPage({ cycle: initialCycle, planId }: { cycle: strin
                     </div>
                   ) : null}
 
-                  {otherPick ? (
+                  {otherPick && invoice.monthsLocked ? (
                     <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
                       You picked {plan?.name} · {cycleLabel} for {rupees(price)}. {invoice.planName} still has{" "}
                       {rupees(payment.instructions.amountDue)} left to pay, so that comes first. Get {plan?.name}{" "}
@@ -735,6 +746,7 @@ function BillingTrace({
             <CalendarClock className="size-4 text-brand-teal" />
             After you pay {rupees(amountDue)}
           </h2>
+          {after.note ? <p className="mt-1 text-xs text-muted-foreground">{after.note}</p> : null}
           <dl className="mt-1 divide-y divide-border">
             <Fact label="Plan" value={`${after.planName} · ${after.cycleLabel}`} />
             <Fact label="Status" value={PLAN_STATUS.ACTIVE} />
