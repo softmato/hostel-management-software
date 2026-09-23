@@ -691,6 +691,7 @@ describe("answering, cancelling and strikes", () => {
     expect(sent.emails.map((email) => email.to).sort()).toEqual([
       "owner@everest.test",
       "sita@example.test",
+      "work.softmato@gmail.com",
     ]);
   });
 

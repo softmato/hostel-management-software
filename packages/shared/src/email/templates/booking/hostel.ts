@@ -33,6 +33,7 @@ export type HostelBookingClosedCause =
   | "CANCELLED_BEFORE_CONFIRMATION"
   | "CANCELLED_BY_USER"
   | "CANCELLED_BY_PLATFORM"
+  | "DECLINED"
   | "HOSTEL_NO_RESPONSE"
   | "NO_SHOW";
 
@@ -44,6 +45,10 @@ const CLOSED_COPY: Record<HostelBookingClosedCause, { heading: string; line: str
   CANCELLED_BY_PLATFORM: {
     heading: `Booking cancelled by ${PLATFORM_NAME}`,
     line: `${PLATFORM_NAME} cancelled this booking and refunded the guest.`,
+  },
+  DECLINED: {
+    heading: "You declined a booking",
+    line: `You declined this booking. ${PLATFORM_NAME} refunds the guest in full. There is nothing more to do.`,
   },
   CANCELLED_BY_USER: {
     heading: "Booking cancelled by the guest",
