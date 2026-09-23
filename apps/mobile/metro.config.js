@@ -18,6 +18,24 @@ const config = getDefaultConfig(__dirname);
 const netinfoShim = path.resolve(__dirname, "src/shims/netinfo.js");
 
 /*
+ * The installable web app (PWA) — this app exported for the browser by
+ * `scripts/export-pwa.mjs`. Where the phone leans on something a browser does
+ * not have, the web bundle, and only the web bundle, gets a stand-in from
+ * `web/`: requests from `src/` for these modules are redirected, and nothing in
+ * `src/` changes. The phone bundle never takes this branch.
+ */
+const webRoot = path.resolve(__dirname, "web");
+const srcRoot = path.resolve(__dirname, "src");
+const WEB_STAND_INS = {
+  "@/lib/documents": "documents.ts",
+  "@/lib/google-auth": "google-auth.ts",
+  "@/lib/push-notifications": "push-notifications.ts",
+  "expo-file-system": "file-system.ts",
+  "expo-secure-store": "secure-store.ts",
+  "react-native-webview": "webview.tsx",
+};
+
+/*
  * `@hostel/calendar/*` — the platform's date rules, compiled into the app from
  * the same file the server imports.
  *
@@ -106,6 +124,19 @@ config.resolver.extraNodeModules = {
 };
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (platform === "web") {
+    const origin = context.originModulePath;
+
+    // `index.js` → `web/entry.ts`, which loads the stand-ins and then the router.
+    if (moduleName === "expo-router/entry" && !origin.startsWith(webRoot)) {
+      return { filePath: path.join(webRoot, "entry.ts"), type: "sourceFile" };
+    }
+
+    if (WEB_STAND_INS[moduleName] && origin.startsWith(srcRoot)) {
+      return { filePath: path.join(webRoot, WEB_STAND_INS[moduleName]), type: "sourceFile" };
+    }
+  }
+
   if (moduleName === "@react-native-community/netinfo") {
     return { filePath: netinfoShim, type: "sourceFile" };
   }

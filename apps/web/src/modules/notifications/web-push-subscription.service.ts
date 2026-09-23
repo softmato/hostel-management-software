@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
 import { DeviceTokenModel } from "@hostel/db/models/DeviceToken";
+import { PWA_PUSH } from "@/modules/notifications/push.service";
 import type {
   webPushSubscribeSchema,
   webPushUnsubscribeSchema,
@@ -44,6 +45,7 @@ export async function saveWebPushSubscription(
     { token: endpoint },
     {
       $set: {
+        capabilities: input.app ? [PWA_PUSH] : [],
         expirationTime: expirationTime ?? null,
         keys: { auth: keys.auth, p256dh: keys.p256dh },
         lastSeenAt: new Date(),

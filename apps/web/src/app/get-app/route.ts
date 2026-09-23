@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  *
  * - Android: the uploaded APK when there is one (the browser starts the
  *   download straight away), else the Play listing.
- * - iPhone/iPad: there is no App Store build yet, so the home page with
- *   `?install=ios`, which opens the Add to Home Screen sheet.
+ * - iPhone/iPad: there is no App Store build yet, so the installable web app
+ *   at `/app`, whose `?install` sheet walks through Add to Home Screen.
  * - Anything else (a laptop that opened the link): the Play listing.
  *
  * A redirect rather than a page, so the stored URLs can change without any
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const { apps } = await loadSiteConfig();
 
   if (/iPhone|iPad|iPod/i.test(agent)) {
-    return NextResponse.redirect(new URL("/?install=ios", request.url));
+    return NextResponse.redirect(new URL("/app/?install", request.url));
   }
 
   const target =

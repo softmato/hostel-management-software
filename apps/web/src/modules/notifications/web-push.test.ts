@@ -38,6 +38,7 @@ import { sendPushToUsers } from "@/modules/notifications/push.service";
 import { webLinkForNotification } from "@/modules/notifications/web-routing";
 
 type DeviceRow = {
+  capabilities?: string[];
   keys?: { auth?: string; p256dh?: string };
   platform: string;
   token: string;
@@ -127,6 +128,25 @@ describe("browser push delivery", () => {
         ["https://push.example/a", "/hostel-admin/payments"],
       ]),
     );
+  });
+
+  it("sends the installed app's subscription to the app's own screen, not the portal", async () => {
+    devicesResolveTo([
+      browser("resident-1", "https://push.example/site"),
+      { ...browser("resident-1", "https://push.example/app"), capabilities: ["pwa"] },
+    ]);
+    usersResolveTo([{ _id: "resident-1", role: "RESIDENT" }]);
+
+    await sendPushToUsers(["resident-1"], payload);
+
+    const urls = new Map(
+      mocks.sendNotification.mock.calls.map(
+        ([subscription, body]) => [subscription.endpoint, JSON.parse(body).url] as const,
+      ),
+    );
+
+    expect(urls.get("https://push.example/site")).toMatch(/^\/resident\//);
+    expect(urls.get("https://push.example/app")).toMatch(/^\/app\/\?push=%2F/);
   });
 
   it("reaches a phone and a browser held by the same person", async () => {

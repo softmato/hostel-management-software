@@ -140,6 +140,8 @@ export const webPushSubscribeSchema = z.object({
       p256dh: z.string().trim().min(8).max(256),
     }),
   }),
+  /** Sent by the installable app at `/app`, whose clicks open app screens — see `PWA_PUSH`. */
+  app: z.boolean().optional(),
 });
 
 export const webPushUnsubscribeSchema = z.object({

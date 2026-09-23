@@ -76,6 +76,23 @@ function reversedClientId(clientId) {
   return `com.googleusercontent.apps.${clientId.slice(0, -suffix.length)}`;
 }
 
+/**
+ * The installable web app (PWA) is this app exported for the web and served by
+ * the website at `/app`. `scripts/export-pwa.mjs` sets `EXPO_PWA`; only then
+ * does the config gain the base path, so every native build — and the update
+ * fingerprint — resolves exactly the config it did before.
+ */
+function pwaOverrides(config) {
+  if (process.env.EXPO_PWA !== "1") {
+    return {};
+  }
+
+  return {
+    experiments: { ...config.experiments, baseUrl: "/app" },
+    web: { ...config.web, bundler: "metro", output: "single" },
+  };
+}
+
 module.exports = ({ config }) => {
   const iosUrlScheme = reversedClientId(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID);
 
@@ -92,5 +109,6 @@ module.exports = ({ config }) => {
           ["@react-native-google-signin/google-signin", { iosUrlScheme }],
         ]
       : config.plugins,
+    ...pwaOverrides(config),
   };
 };

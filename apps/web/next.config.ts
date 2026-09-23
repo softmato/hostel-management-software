@@ -259,23 +259,33 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    return [
+    return {
+      afterFiles: [
+        /*
+         * Apple fetches the AASA from this exact path and will not follow a
+         * redirect to find it, so this has to be a rewrite. It exists at all
+         * because Next's app router skips folders whose name starts with a dot,
+         * which rules out `app/.well-known/…` as a route.
+         *
+         * Its Android counterpart needs none of this: `assetlinks.json` is a
+         * committed file under `public/.well-known/`, which Next serves verbatim
+         * at the site root, dot-directory included. The handler explains why this
+         * one cannot be a file.
+         */
+        {
+          destination: "/api/apple-app-site-association",
+          source: "/.well-known/apple-app-site-association",
+        },
+      ],
+      beforeFiles: [],
       /*
-       * Apple fetches the AASA from this exact path and will not follow a
-       * redirect to find it, so this has to be a rewrite. It exists at all
-       * because Next's app router skips folders whose name starts with a dot,
-       * which rules out `app/.well-known/…` as a route.
-       *
-       * Its Android counterpart needs none of this: `assetlinks.json` is a
-       * committed file under `public/.well-known/`, which Next serves verbatim
-       * at the site root, dot-directory included. The handler explains why this
-       * one cannot be a file.
+       * The installable web app: the phone app exported into `public/app` at
+       * deploy time (`apps/mobile/scripts/export-pwa.mjs`). It is a single-page
+       * app, so an `/app/...` path no file answers is its `index.html`, and its
+       * own router reads the path from there.
        */
-      {
-        destination: "/api/apple-app-site-association",
-        source: "/.well-known/apple-app-site-association",
-      },
-    ];
+      fallback: [{ destination: "/app/index.html", source: "/app/:path*" }],
+    };
   },
   turbopack: {
     root: repoRoot,

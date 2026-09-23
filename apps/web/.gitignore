@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# The installable web app, exported from apps/mobile at deploy time (apps/mobile/scripts/export-pwa.mjs)
+/public/app/

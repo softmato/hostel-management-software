@@ -60,6 +60,14 @@ const REQUEST_TIMEOUT_MS = 10_000;
  */
 export const APP_DRAWS_CATEGORY_PUSHES = "draws-category-pushes";
 
+/**
+ * A browser subscription made by the installable app at `/app` (the phone app
+ * exported for the web) rather than by the website. Its clicks open the app's
+ * own screen: `/app/?push=<deep link>`, the same deep link the phone gets,
+ * which the app resolves with its own `resolvePushPath` before it routes.
+ */
+export const PWA_PUSH = "pwa";
+
 type ExpoPushMessage = {
   /** Absent on a data-only message — see `drawnByTheApp`. */
   body?: string;
@@ -254,7 +262,7 @@ async function activeDevicesFor(userIds: string[]) {
   // that phone buzzes twice for one event.
   const seen = new Set<string>();
   const expo: ExpoDevice[] = [];
-  const web: (WebPushTarget & { userId: string })[] = [];
+  const web: (WebPushTarget & { app: boolean; userId: string })[] = [];
 
   for (const row of rows ?? []) {
     if (!row?.token || seen.has(row.token)) {
@@ -265,6 +273,7 @@ async function activeDevicesFor(userIds: string[]) {
 
     if (row.platform === "WEB") {
       web.push({
+        app: row.capabilities?.includes(PWA_PUSH) ?? false,
         expirationTime: row.expirationTime,
         keys: row.keys,
         token: row.token,
@@ -446,7 +455,7 @@ async function postBatch(messages: ExpoPushMessage[]): Promise<ExpoPushTicket[]>
  * the desktop exactly as it does in the bell.
  */
 async function sendToBrowsers(
-  targets: (WebPushTarget & { userId: string })[],
+  targets: (WebPushTarget & { app: boolean; userId: string })[],
   payload: PushPayload,
   high: boolean,
 ) {
@@ -457,8 +466,10 @@ async function sendToBrowsers(
   const roles = await rolesFor([...new Set(targets.map((target) => target.userId))]);
   const byRole = new Map<string, (WebPushTarget & { userId: string })[]>();
 
+  // The installable app's subscriptions are one group: its link is the phone's
+  // deep link, which does not depend on the role.
   for (const target of targets) {
-    const role = roles.get(target.userId) ?? "";
+    const role = target.app ? PWA_PUSH : (roles.get(target.userId) ?? "");
     const group = byRole.get(role);
 
     if (group) {
@@ -481,12 +492,15 @@ async function sendToBrowsers(
       notificationId: payload.notificationId,
       tag: payload.notificationId ?? `${payload.category}:${payload.hostelId ?? ""}`,
       title: payload.title,
-      url: webLinkForNotification({
-        actionUrl: payload.actionUrl,
-        category: payload.category,
-        data: payload.data,
-        role,
-      }),
+      url:
+        role === PWA_PUSH
+          ? `/app/?push=${encodeURIComponent(deepLinkForNotification(payload))}`
+          : webLinkForNotification({
+              actionUrl: payload.actionUrl,
+              category: payload.category,
+              data: payload.data,
+              role,
+            }),
       urgent: high,
     });
 

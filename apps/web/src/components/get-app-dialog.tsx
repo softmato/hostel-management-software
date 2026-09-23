@@ -23,15 +23,15 @@ type Platform = "android" | "ios";
  *
  * Android points at `/get-app`, which downloads the uploaded APK (or opens the
  * Play listing) — a stable link, so a new APK never invalidates a QR. iPhone
- * points at the site with `?install=ios`, which opens the Add to Home Screen
- * sheet until the App Store build exists.
+ * points at the installable web app with `?install`, whose sheet walks through
+ * Add to Home Screen until the App Store build exists.
  */
 export function GetAppDialog({ className }: { className?: string }) {
   const [platform, setPlatform] = useState<Platform>("android");
   const [qr, setQr] = useState({ data: "", url: "" });
   // Always the production site: a QR scanned off a dev or preview build must
   // still land on the real one.
-  const link = `${PLATFORM_SITE_URL}${platform === "android" ? "/get-app" : "/?install=ios"}`;
+  const link = `${PLATFORM_SITE_URL}${platform === "android" ? "/get-app" : "/app/?install"}`;
 
   useEffect(() => {
     void import("qrcode").then(({ toDataURL }) =>

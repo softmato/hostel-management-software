@@ -7,12 +7,13 @@ import { loadSeo, resolveSeoPage } from "@/lib/seo-config";
 /**
  * The web app manifest: the name, icons and colour a browser uses for the site.
  *
- * `display: "standalone"` so an iPhone that adds the site to its Home Screen
- * gets an app-like window — there is no iOS app yet. Android visitors are sent
- * to the real app by `InstallAppBanner`, which also swallows Chrome's own
- * install prompt so nobody installs the lesser copy there. When the Play
- * listing is live, add it under `related_applications` with
- * `prefer_related_applications: true` as well.
+ * What gets installed is the phone app itself, exported for the web and served
+ * at `/app` (`apps/mobile/scripts/export-pwa.mjs`) — the same screens as the
+ * Android build, not the website in a window. So `start_url`, `scope` and `id`
+ * all point there, and installing from any page of the site installs the app.
+ * `InstallAppBanner` fires Android's install prompt and sends iPhones to `/app`,
+ * where the app's own sheet walks through Add to Home Screen. When the Play
+ * listing is live, add it under `related_applications` as well.
  */
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
   const { fill, seo } = await loadSeo();
@@ -23,14 +24,16 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     categories: ["business", "education", "lifestyle"],
     description: home.description,
     display: "standalone",
+    id: "/app/",
     icons: [
       { sizes: "512x512", src: "/icon.png", type: "image/png" },
       { sizes: "180x180", src: "/apple-icon.png", type: "image/png" },
     ],
     lang: "en-NP",
     name: PLATFORM_NAME,
+    scope: "/app/",
     short_name: PLATFORM_NAME,
-    start_url: "/",
+    start_url: "/app/",
     theme_color: "#0a8a4b",
   };
 }
