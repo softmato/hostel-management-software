@@ -89,13 +89,22 @@ export function fillMissing(values: Record<string, string>): string[] {
 
 function findRepoRoot(): string | null {
   // `next dev` runs with cwd at apps/web; a script may run from the repo root.
+  //
+  // `turbopackIgnore`: these paths only exist on a dev machine. Traced, the
+  // build cannot resolve them and sweeps each directory whole — `public/`
+  // (the /app export included), `src/`, the mobile app — into instrumentation,
+  // which every function on Vercel inherits.
+  const cwd = /* turbopackIgnore: true */ process.cwd();
   const candidates = [
-    process.cwd(),
-    path.resolve(process.cwd(), ".."),
-    path.resolve(process.cwd(), "../.."),
+    cwd,
+    path.resolve(/* turbopackIgnore: true */ cwd, ".."),
+    path.resolve(/* turbopackIgnore: true */ cwd, "../.."),
   ];
 
-  return candidates.find((dir) => existsSync(path.join(dir, ".env"))) ?? null;
+  return (
+    candidates.find((dir) => existsSync(path.join(/* turbopackIgnore: true */ dir, ".env"))) ??
+    null
+  );
 }
 
 let loaded = false;
@@ -114,7 +123,7 @@ export function loadRootEnv(): string[] {
   }
 
   try {
-    return fillMissing(parseEnvFile(readFileSync(path.join(repoRoot, ".env"), "utf8")));
+    return fillMissing(parseEnvFile(readFileSync(path.join(/* turbopackIgnore: true */ repoRoot, ".env"), "utf8")));
   } catch {
     // A missing or unreadable root .env is legitimate — a deployment sets real
     // environment variables and has no file at all.

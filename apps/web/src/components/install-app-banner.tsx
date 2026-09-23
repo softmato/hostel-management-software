@@ -31,10 +31,10 @@ function readDismissed() {
  * browser's own install prompt is held and fired by "Install"; where the
  * browser has not offered one, and on iPhone (no install API, only Share → Add
  * to Home Screen), "Install" opens `/app`, whose own sheet finishes the job.
- * Once the Play listing is set in site config, Android goes there instead.
+ * One button on both platforms until the store apps are live.
  */
 export function InstallAppBanner() {
-  const { apps, identity } = useSiteConfig();
+  const { identity } = useSiteConfig();
   const [platform, setPlatform] = useState<Platform>(null);
   const [visible, setVisible] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
@@ -92,35 +92,24 @@ export function InstallAppBanner() {
     setVisible(false);
   }
 
-  const playUrl = platform === "android" ? apps.androidPlayUrl : "";
-
   return (
     <div className="fixed inset-x-3 bottom-3 z-[60] mx-auto flex max-w-md items-center gap-3 rounded-2xl border border-border bg-card p-3 shadow-xl">
       <Image alt="" className="size-10 shrink-0 rounded-xl" height={40} src="/icon.png" width={40} />
       <span className="min-w-0 flex-1 leading-tight">
         <span className="block truncate text-sm font-bold text-foreground">
-          {playUrl ? `Get the ${identity.siteName} app` : `Install ${identity.siteName}`}
+          Install {identity.siteName}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
-          {playUrl ? "Free on Google Play" : "Add the app to your home screen"}
+          Add the app to your home screen
         </span>
       </span>
-      {playUrl ? (
-        <a
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-bold text-white"
-          href={playUrl}
-        >
-          <Download className="size-3.5" /> Get
-        </a>
-      ) : (
-        <button
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-bold text-white"
-          onClick={() => void install()}
-          type="button"
-        >
-          <Download className="size-3.5" /> Install
-        </button>
-      )}
+      <button
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-teal px-3 py-2 text-xs font-bold text-white"
+        onClick={() => void install()}
+        type="button"
+      >
+        <Download className="size-3.5" /> Install
+      </button>
       <button
         aria-label="Dismiss"
         className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
