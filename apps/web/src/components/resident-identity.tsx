@@ -2699,7 +2699,7 @@ export function ResidentIdentityCenter({
   /** Lets the host refresh its own copy of the user once an ID is minted. */
   onProfileSaved?: () => void;
 }) {
-  const [view, setView] = useState<"closed" | "loading" | "qr" | "form" | "signin">(
+  const [view, setView] = useState<"closed" | "loading" | "qr" | "form" | "intro" | "signin">(
     "closed",
   );
   const [reason, setReason] = useState<ProfilePromptReason>("MANUAL");
@@ -2805,7 +2805,8 @@ export function ResidentIdentityCenter({
       }
 
       setReason(requestedReason);
-      setView("form");
+      // Automatic triggers ask first; only a tap goes straight into the form.
+      setView(requestedReason === "MANUAL" ? "form" : "intro");
     }
 
     (window as unknown as Record<string, unknown>).__hhIdentityListenerAttached = true;
@@ -2836,6 +2837,40 @@ export function ResidentIdentityCenter({
       <Modal onClose={close} title="Loading your details">
         <div className="flex items-center justify-center py-10 text-foreground">
           <Loader2 className="size-6 animate-spin" />
+        </div>
+      </Modal>
+    );
+  }
+
+  if (view === "intro") {
+    return (
+      <Modal
+        onClose={() => {
+          snoozePrompt();
+          close();
+        }}
+        subtitle="Save your details once and every hostel you apply to can fill their form by scanning your code."
+        title="Get your resident ID"
+      >
+        <div className="space-y-3">
+          <button
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brand-teal text-sm font-bold text-white shadow-sm transition hover:brightness-110"
+            onClick={() => setView("form")}
+            type="button"
+          >
+            <QrCode className="size-4" />
+            Set up my ID
+          </button>
+          <button
+            className="w-full py-2 text-sm font-bold text-foreground transition hover:underline"
+            onClick={() => {
+              snoozePrompt();
+              close();
+            }}
+            type="button"
+          >
+            Not now
+          </button>
         </div>
       </Modal>
     );
