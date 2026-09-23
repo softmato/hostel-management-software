@@ -483,6 +483,7 @@ function SettingsForm({ config }: { config: BookingConfig }) {
                 className={FIELD}
                 min={0}
                 onChange={(event) => set(field.key, Number(event.target.value) as never)}
+                step={field.key === "feePercent" ? 0.1 : 1}
                 type="number"
                 value={draft[field.key] as number}
               />

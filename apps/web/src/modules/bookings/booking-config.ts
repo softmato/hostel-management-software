@@ -48,7 +48,7 @@ export const bookingConfigSchema = z
     /** The platform-wide switch. Off until the collection QR and terms are set. */
     enabled: z.boolean().default(false),
     /** The booking fee, as a whole percent of the room type's monthly rent. */
-    feePercent: z.number().int().min(1).max(50).default(7),
+    feePercent: z.number().min(0.1).max(50).multipleOf(0.1).default(7),
     /** The hostel's part of whatever is kept. HostelPalika keeps the rest. */
     hostelSharePercent: percent.default(60),
     /** How long a confirmed bed is held for the person to move in. */
