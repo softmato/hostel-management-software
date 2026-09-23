@@ -1,3 +1,4 @@
+import { attachDatabasePool } from "@vercel/functions";
 import mongoose from "mongoose";
 
 type CachedConnection = {
@@ -42,9 +43,19 @@ export async function connectToDatabase() {
    * connections at 500 cluster-wide. The driver default (100 per pool, never
    * idled out) let a burst of instances hold the whole budget — Atlas alerted
    * on 2026-09-22. A request past the cap waits for a socket; it does not fail.
+   * Fluid runs many requests per instance, so 5 is plenty; each instance also
+   * holds ~2 monitoring sockets per replica-set member on top of this.
+   *
+   * `attachDatabasePool` closes idle sockets before Vercel suspends the
+   * instance, instead of leaving them open on a frozen process until Atlas
+   * times them out. A no-op off Vercel (scripts, local dev).
    */
   cached.promise ??= mongoose
-    .connect(uri, { bufferCommands: false, maxPoolSize: 10, maxIdleTimeMS: 30_000 })
+    .connect(uri, { bufferCommands: false, maxPoolSize: 5, maxIdleTimeMS: 30_000 })
+    .then((connection) => {
+      attachDatabasePool(connection.connection.getClient());
+      return connection;
+    })
     .catch((error: unknown) => {
       cached.promise = null;
       throw error;

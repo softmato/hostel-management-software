@@ -268,6 +268,23 @@ const nextConfig: NextConfig = {
         permanent: true,
         source: "/hostel-management-system",
       },
+      // Old and misspelt paths. These lived in the proxy, which put a function
+      // invocation in front of every request just to check this list.
+      // `/pricing` was the first pricing page; `/plans-pricing` replaced it.
+      ...[
+        ["/signin", "/login"],
+        ["/log-in", "/login"],
+        ["/sign-up", "/signup"],
+        ["/register", "/signup"],
+        ["/term", "/terms"],
+        ["/tnc", "/terms"],
+        ["/privacy-policy", "/privacy"],
+        ["/data-policy", "/privacy"],
+        ["/hostel", "/hostels"],
+        ["/pricing", "/plans-pricing"],
+        ["/pricings", "/plans-pricing"],
+        ["/faq", "/plans-pricing"],
+      ].map(([source, destination]) => ({ destination, permanent: true, source })),
     ];
   },
   async rewrites() {

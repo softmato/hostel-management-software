@@ -12,29 +12,6 @@ import { isAuthBypassEnabled } from "@/lib/auth-bypass";
 import { landingPathForRole, protectedRouteRuleForPath } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 
-/* ── Route aliases (merged from old middleware.ts) ── */
-const routeAliases: Record<string, string> = {
-  "/signin": "/login",
-  "/log-in": "/login",
-  "/sign-up": "/signup",
-  "/register": "/signup",
-  "/term": "/terms",
-  "/tnc": "/terms",
-  "/privacy-policy": "/privacy",
-  "/data-policy": "/privacy",
-  "/hostel": "/hostels",
-  /*
-   * `/pricing` was the first pricing page — three cards of free text from a
-   * `pricing` config section, with no service identity behind them, so nothing
-   * on it could be linked to, compared across tiers or given a detail page.
-   * `/plans-pricing` replaced it and that section is gone, so the old path is
-   * an alias rather than a second page quietly showing older prices.
-   */
-  "/pricing": "/plans-pricing",
-  "/pricings": "/plans-pricing",
-  "/faq": "/plans-pricing",
-};
-
 function accessSecret() {
   const secret = process.env.JWT_ACCESS_SECRET;
 
@@ -71,21 +48,12 @@ function redirectHome(request: NextRequest) {
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  /* 1. Route alias redirects */
-  const aliasTarget = routeAliases[pathname];
-
-  if (aliasTarget) {
-    const url = request.nextUrl.clone();
-    url.pathname = aliasTarget;
-    return NextResponse.redirect(url, { status: 308 });
-  }
-
-  /* 2. Skip auth in development / UI-preview mode (never in production) */
+  /* 1. Skip auth in development / UI-preview mode (never in production) */
   if (isAuthBypassEnabled()) {
     return NextResponse.next();
   }
 
-  /* 3. Auth guard for protected routes */
+  /* 2. Auth guard for protected routes */
   const rule = protectedRouteRuleForPath(pathname);
 
   if (!rule) {
@@ -219,44 +187,55 @@ async function refreshFromCookie(request: NextRequest) {
   }
 }
 
+/*
+ * On Vercel this proxy is a function, so every request it matches is billed CPU
+ * — including hits the CDN would otherwise answer from cache. It used to match
+ * every non-static path; now it runs only where it has work to do.
+ *
+ * Literals only: Next reads this object statically, so the cookie names cannot
+ * come from `auth-cookies.ts` (legacy names included). Keep them in step with it.
+ */
 export const config = {
   matcher: [
-    /*
-     * Everything but static files, so a dead session is renewed on the very
-     * first request — see isSoftSessionPath. Protected portals and the route
-     * aliases below are covered by this too; they stay listed as the record of
-     * what the proxy guards.
-     */
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|xml|woff2?|webmanifest)$).*)",
-    /* Protected portals */
+    /* Protected portals — checked on every navigation. */
     "/platform/:path*",
     "/hostel-admin/:path*",
     /* Tenant-scoped hostel workspace: /{hostel-slug}/admin/... */
     "/:hostelSlug/admin/:path*",
     "/resident/:path*",
     "/guardian/:path*",
-    /*
-     * The field team's desk. Its rule sat in `route-access.ts` without an entry
-     * here, so the proxy never ran and any visitor rendered the portal.
-     */
-    "/team",
     "/team/:path*",
-    /* Every hostel agreement signed — the team's shared sheet. */
     "/hostel-registration-track-sheet",
-    /* The service provider's assigned-jobs list. */
     "/jobs/:path*",
-    "/jobs",
-    /* Route aliases */
-    "/signin",
-    "/log-in",
-    "/sign-up",
-    "/register",
-    "/term",
-    "/tnc",
-    "/privacy-policy",
-    "/data-policy",
-    "/hostel",
-    "/pricings",
-    "/faq",
+    /*
+     * Soft session (isSoftSessionPath): anywhere else, only when there is a
+     * refresh cookie to renew from and the access cookie — which dies with its
+     * 15-minute token — is gone. A signed-out visitor, a live session and the
+     * phone app (bearer tokens, no cookies) never reach this function.
+     */
+    {
+      source: "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|xml|woff2?|webmanifest)$).*)",
+      has: [{ key: "hostelpalika_refresh", type: "cookie" }],
+      missing: [
+        { key: "hostelpalika_access_token", type: "cookie" },
+        { key: "hostelhub_access_token", type: "cookie" },
+      ],
+    },
+    {
+      source: "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|xml|woff2?|webmanifest)$).*)",
+      has: [{ key: "hostelhub_refresh", type: "cookie" }],
+      missing: [
+        { key: "hostelpalika_access_token", type: "cookie" },
+        { key: "hostelhub_access_token", type: "cookie" },
+      ],
+    },
+    {
+      source: "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|gif|svg|webp|avif|ico|css|js|map|txt|xml|woff2?|webmanifest)$).*)",
+      has: [{ key: "hostelhub_refresh_token", type: "cookie" }],
+      missing: [
+        { key: "hostelpalika_access_token", type: "cookie" },
+        { key: "hostelhub_access_token", type: "cookie" },
+      ],
+    },
   ],
 };

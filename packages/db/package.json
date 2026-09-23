@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@hostel/shared": "*",
+    "@vercel/functions": "^3.9.9",
     "bcryptjs": "^3.0.3",
     "mongoose": "^9.7.1"
   },
