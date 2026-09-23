@@ -44,7 +44,12 @@ export default async function PublicLayout({
               identity.supportPhone === DEFAULT_SITE_CONFIG.identity.supportPhone
                 ? ""
                 : identity.supportPhone,
-            sameAs: Object.values(config.social).filter(Boolean),
+            // The product page on softmato.com ties this brand to a site Google
+            // already trusts; the social links follow once they exist.
+            sameAs: [
+              "https://softmato.com/products/hostelpalika",
+              ...Object.values(config.social).filter(Boolean),
+            ],
             vendorLegalName: DEFAULT_SITE_CONFIG.issuer.legalName,
           }),
           websiteJsonLd(alternateNames),
