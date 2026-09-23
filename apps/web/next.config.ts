@@ -240,6 +240,18 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { headers: SECURITY_HEADERS, source: "/:path*" },
+      // The installable app at /app scans QR codes and ID cards and records voice
+      // notes, so it gets the camera and microphone the website itself refuses.
+      // Listed after the site-wide rule: the later match wins for the same key.
+      {
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(self), geolocation=(self), interest-cohort=()",
+          },
+        ],
+        source: "/app/:path*",
+      },
       // Crawlers may fetch these to render /hostels (robots.ts); the JSON itself
       // is never a search result.
       { headers: [{ key: "X-Robots-Tag", value: "noindex" }], source: "/api/v1/public/:path*" },
