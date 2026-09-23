@@ -26,7 +26,14 @@ type Platform = "android" | "ios";
  * points at the installable web app with `?install`, whose sheet walks through
  * Add to Home Screen until the App Store build exists.
  */
-export function GetAppDialog({ className }: { className?: string }) {
+export function GetAppDialog({
+  className,
+  comingSoon = false,
+}: {
+  className?: string;
+  /** Portal users: no QR, just "coming soon" and how to install the web app now. */
+  comingSoon?: boolean;
+}) {
   const [platform, setPlatform] = useState<Platform>("android");
   const [qr, setQr] = useState({ data: "", url: "" });
   // Always the production site: a QR scanned off a dev or preview build must
@@ -34,10 +41,31 @@ export function GetAppDialog({ className }: { className?: string }) {
   const link = `${PLATFORM_SITE_URL}${platform === "android" ? "/get-app" : "/app?install"}`;
 
   useEffect(() => {
+    if (comingSoon) return;
     void import("qrcode").then(({ toDataURL }) =>
       toDataURL(link, { margin: 1, width: 480 }).then((data) => setQr({ data, url: link })),
     );
-  }, [link]);
+  }, [link, comingSoon]);
+
+  const tabs = (
+    <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist">
+      {(["android", "ios"] as const).map((option) => (
+        <button
+          aria-selected={platform === option}
+          className={cn(
+            "rounded-md py-1.5 text-sm font-semibold transition",
+            platform === option ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
+          )}
+          key={option}
+          onClick={() => setPlatform(option)}
+          role="tab"
+          type="button"
+        >
+          {option === "android" ? "Android" : "iPhone"}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <Dialog>
@@ -53,6 +81,23 @@ export function GetAppDialog({ className }: { className?: string }) {
         </button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-sm">
+        {comingSoon ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Get the app</DialogTitle>
+              <DialogDescription>
+                The {platform === "android" ? "Android" : "iPhone"} app is coming soon. We will
+                email you when it is ready.
+              </DialogDescription>
+            </DialogHeader>
+            {tabs}
+            <p className="rounded-lg bg-muted p-3 text-sm text-foreground">
+              For now, open {PLATFORM_SITE_URL.replace(/^https?:\/\//, "")} on your phone and tap
+              the <strong>Install</strong> button. It installs right away.
+            </p>
+          </>
+        ) : (
+          <>
         <DialogHeader>
           <DialogTitle>Scan to get the app</DialogTitle>
           <DialogDescription>
@@ -62,23 +107,7 @@ export function GetAppDialog({ className }: { className?: string }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1" role="tablist">
-          {(["android", "ios"] as const).map((option) => (
-            <button
-              aria-selected={platform === option}
-              className={cn(
-                "rounded-md py-1.5 text-sm font-semibold transition",
-                platform === option ? "bg-card text-foreground shadow-sm" : "text-muted-foreground",
-              )}
-              key={option}
-              onClick={() => setPlatform(option)}
-              role="tab"
-              type="button"
-            >
-              {option === "android" ? "Android" : "iPhone"}
-            </button>
-          ))}
-        </div>
+        {tabs}
 
         <div className="mx-auto flex size-60 items-center justify-center rounded-xl border border-border bg-white p-2">
           {qr.url === link && qr.data ? (
@@ -95,6 +124,8 @@ export function GetAppDialog({ className }: { className?: string }) {
         >
           {link}
         </a>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

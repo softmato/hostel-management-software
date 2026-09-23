@@ -51,6 +51,7 @@ import {
   useHostelSuspension,
 } from "@/components/hostel-suspension-gate";
 import { BrandMark } from "@/components/brand-mark";
+import { GetAppDialog } from "@/components/get-app-dialog";
 import { NotificationBell } from "@/components/notification-bell";
 import { PortalAccount } from "@/components/portal-account";
 import { PortalSearch } from "@/components/portal-search";
@@ -655,6 +656,10 @@ export function PortalShell({
                 {tone === "admin" ? (
                   <HostelPreviewLink className="hidden lg:inline-flex" />
                 ) : null}
+
+                {tone === "team" || tone === "platform" ? null : (
+                  <GetAppDialog className="px-2.5 py-1.5 text-[12.5px]" comingSoon />
+                )}
 
                 <ThemeToggle className="hidden size-8 sm:inline-flex" />
 
