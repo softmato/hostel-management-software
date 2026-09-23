@@ -29,6 +29,52 @@ export function hostelBookingsPausedEmail(input: {
   };
 }
 
+const HOSTEL_FAULT_COPY = {
+  CANCELLED_BY_HOSTEL: { did: "cancelled this booking after confirming it", short: "cancelled" },
+  DECLINED: { did: "declined this booking", short: "declined" },
+  HOSTEL_NO_RESPONSE: { did: "did not answer this booking in time", short: "did not answer" },
+};
+
+export type HostelFaultCause = keyof typeof HOSTEL_FAULT_COPY;
+
+/** A hostel declined, ignored or cancelled a paid booking: the guest's refund is ours to send. */
+export function bookingHostelFaultRefundEmail(input: {
+  cause: HostelFaultCause;
+  code: string;
+  guestName: string;
+  hostelName: string;
+  queueUrl: string;
+  reason?: string | null;
+  refund: number;
+  refundTo: string;
+  roomType: string;
+}): EmailContent {
+  const copy = HOSTEL_FAULT_COPY[input.cause];
+
+  return {
+    category: "alert",
+    subject: `Refund to send — ${input.hostelName} ${copy.short} booking ${input.code}`,
+    html: emailLayout({
+      bodyHtml: [
+        paragraph(`${escapeHtml(input.hostelName)} ${copy.did}. Check and send the refund.`),
+        detailsTable([
+          { label: "Booking", value: input.code },
+          { label: "Guest", value: input.guestName },
+          { label: "Hostel", value: input.hostelName },
+          { label: "Room", value: input.roomType },
+          { label: "Reason", value: input.reason ?? "" },
+          { emphasis: true, label: "Refund", value: rupees(input.refund) },
+          { label: "Refund to", value: input.refundTo },
+        ]),
+        ctaButton(input.queueUrl, "Send refund"),
+      ].join(""),
+      eyebrow: "Bookings",
+      heading: "Refund to send",
+      preheader: `${input.hostelName} ${copy.short} ${input.code}. Refund ${rupees(input.refund)} to ${input.guestName}.`,
+    }),
+  };
+}
+
 /** A booking screenshot waiting to be checked against money received. */
 export function bookingProofToCheckEmail(input: {
   amount: number;

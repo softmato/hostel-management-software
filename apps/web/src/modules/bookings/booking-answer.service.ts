@@ -16,6 +16,7 @@ import {
   type HostelBookingClosedCause,
 } from "@hostel/shared/email/templates/booking/hostel";
 import { rupees } from "@hostel/shared/email/templates/booking/parts";
+import { bookingHostelFaultRefundEmail } from "@hostel/shared/email/templates/booking/platform";
 
 import type { ApiPrincipal } from "@/lib/api-auth";
 import { connectToDatabase } from "@/lib/db";
@@ -32,6 +33,7 @@ import {
   notifyHostel,
   notifyHostelBookingPause,
   notifyPlatform,
+  PLATFORM_BOOKINGS_PATH,
   when,
 } from "@/modules/bookings/booking-notify";
 import { cancellationSchedule, holdEndsAt } from "@/modules/bookings/booking-terms";
@@ -217,6 +219,20 @@ export async function announceEnding(ended: BookingRecord, previous: BookingStat
       notifyPlatform(ended, {
         action: "booking_money_due",
         body: `${ended.code}: ${owed.join(", ")} to send.`,
+        email:
+          refund > 0 && (cause === "DECLINED" || cause === "HOSTEL_NO_RESPONSE" || cause === "CANCELLED_BY_HOSTEL")
+            ? bookingHostelFaultRefundEmail({
+                cause,
+                code: ended.code,
+                guestName: ended.guest.name,
+                hostelName: ended.hostelSnapshot.name,
+                queueUrl: appUrl(`${PLATFORM_BOOKINGS_PATH}?tab=refunds`),
+                reason,
+                refund,
+                refundTo,
+                roomType: ended.roomType,
+              })
+            : undefined,
         tab: refund > 0 ? "refunds" : "payouts",
         title: refund > 0 ? "Refund to send" : "Payout to send",
         type: "BOOKING_MONEY_DUE",
