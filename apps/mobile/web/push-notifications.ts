@@ -8,10 +8,11 @@ import { readTokens } from "@/lib/session";
  * an Expo token, on the pipeline the website already runs — the site's own
  * `/sw.js`, its VAPID key, and a `DeviceToken` row with platform `WEB`.
  *
- * Registered at scope `/app/`, not `/`, so the app gets a subscription of its
- * own, separate from the website's in the same browser. It is sent with
- * `app: true`, which makes the server link its clicks to `/app/?push=<deep
- * link>` (see `PWA_PUSH` in the web app); `web/push-open.ts` turns that into the
+ * Registered at scope `/app`, not `/`, so the app gets a subscription of its
+ * own, separate from the website's in the same browser. No trailing slash: the
+ * home screen's address is `/app`, which a `/app/` scope would not cover. It is
+ * sent with `app: true`, which makes the server link its clicks to
+ * `/app?push=<deep link>` (see `PWA_PUSH` in the web app); `web/push-open.ts` turns that into the
  * screen the phone would open. Same exports, same rule as the phone: the
  * browser's permission prompt appears only when `ask` is passed, which only
  * Settings does — plus the shell's one-time sheet (`public/index.html`), raised
@@ -19,9 +20,26 @@ import { readTokens } from "@/lib/session";
  * Home Screen; in a Safari tab this answers "unsupported".
  */
 
-const SCOPE = "/app/";
+const SCOPE = "/app";
 
 let registeredEndpoint: string | null = null;
+
+/** `serviceWorker.ready` answers for the page's own scope; this waits on the one registered. */
+function activated(registration: ServiceWorkerRegistration) {
+  const worker = registration.installing ?? registration.waiting;
+
+  if (registration.active || !worker) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "activated") {
+        resolve();
+      }
+    });
+  });
+}
 
 function supported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -73,9 +91,18 @@ export const registerPushToken: typeof Native.registerPushToken = async (options
   }
 
   try {
-    await navigator.serviceWorker.register("/sw.js", { scope: SCOPE });
+    // The first build registered at `/app/`: drop it, or its subscription keeps
+    // delivering a second copy of every push.
+    for (const old of await navigator.serviceWorker.getRegistrations()) {
+      if (old.scope.endsWith("/app/")) {
+        await (await old.pushManager.getSubscription())?.unsubscribe();
+        await old.unregister();
+      }
+    }
 
-    const registration = await navigator.serviceWorker.ready;
+    const registration = await navigator.serviceWorker.register("/sw.js", { scope: SCOPE });
+
+    await activated(registration);
     const { publicKey } = unwrap(await api.get<ApiEnvelope<{ publicKey: string }>>("/push/public-key"));
     const key = keyBytes(publicKey);
     let subscription = await registration.pushManager.getSubscription();

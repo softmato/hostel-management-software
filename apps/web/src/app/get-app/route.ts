@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const { apps } = await loadSiteConfig();
 
   if (/iPhone|iPad|iPod/i.test(agent)) {
-    return NextResponse.redirect(new URL("/app/?install", request.url));
+    return NextResponse.redirect(new URL("/app?install", request.url));
   }
 
   const target =

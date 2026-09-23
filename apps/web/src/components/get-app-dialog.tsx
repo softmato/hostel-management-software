@@ -31,7 +31,7 @@ export function GetAppDialog({ className }: { className?: string }) {
   const [qr, setQr] = useState({ data: "", url: "" });
   // Always the production site: a QR scanned off a dev or preview build must
   // still land on the real one.
-  const link = `${PLATFORM_SITE_URL}${platform === "android" ? "/get-app" : "/app/?install"}`;
+  const link = `${PLATFORM_SITE_URL}${platform === "android" ? "/get-app" : "/app?install"}`;
 
   useEffect(() => {
     void import("qrcode").then(({ toDataURL }) =>

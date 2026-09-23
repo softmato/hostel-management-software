@@ -6,11 +6,13 @@
     <!-- viewport-fit=cover: the installed app draws under the notch, and the safe-area insets pad it back. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>%WEB_TITLE%</title>
-    <!-- The installable web app. One manifest for the whole site (apps/web/src/app/manifest.ts); it starts here, at /app/. -->
+    <!-- The installable web app. One manifest for the whole site (apps/web/src/app/manifest.ts); it starts here, at /app. -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-icon.png" />
     <link rel="icon" href="/icon.png" />
-    <meta name="theme-color" content="#0a8a4b" />
+    <!-- The screen's background, so the status and navigation bars disappear into the app, light and dark. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0c0a09" media="(prefers-color-scheme: dark)" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />

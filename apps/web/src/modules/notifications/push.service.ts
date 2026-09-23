@@ -63,7 +63,7 @@ export const APP_DRAWS_CATEGORY_PUSHES = "draws-category-pushes";
 /**
  * A browser subscription made by the installable app at `/app` (the phone app
  * exported for the web) rather than by the website. Its clicks open the app's
- * own screen: `/app/?push=<deep link>`, the same deep link the phone gets,
+ * own screen: `/app?push=<deep link>`, the same deep link the phone gets,
  * which the app resolves with its own `resolvePushPath` before it routes.
  */
 export const PWA_PUSH = "pwa";
@@ -494,7 +494,7 @@ async function sendToBrowsers(
       title: payload.title,
       url:
         role === PWA_PUSH
-          ? `/app/?push=${encodeURIComponent(deepLinkForNotification(payload))}`
+          ? `/app?push=${encodeURIComponent(deepLinkForNotification(payload))}`
           : webLinkForNotification({
               actionUrl: payload.actionUrl,
               category: payload.category,

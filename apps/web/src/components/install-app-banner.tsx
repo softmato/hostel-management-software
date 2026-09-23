@@ -9,7 +9,7 @@ import { useSiteConfig } from "@/components/site-config-provider";
 const DISMISS_KEY = "install-banner-dismissed";
 
 /** Where the installable app lives; `?install` opens its own install sheet. */
-const APP_INSTALL_HREF = "/app/?install";
+const APP_INSTALL_HREF = "/app?install";
 
 type Platform = "android" | "ios" | null;
 

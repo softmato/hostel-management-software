@@ -146,7 +146,7 @@ describe("browser push delivery", () => {
     );
 
     expect(urls.get("https://push.example/site")).toMatch(/^\/resident\//);
-    expect(urls.get("https://push.example/app")).toMatch(/^\/app\/\?push=%2F/);
+    expect(urls.get("https://push.example/app")).toMatch(/^\/app\?push=%2F/);
   });
 
   it("reaches a phone and a browser held by the same person", async () => {
