@@ -7,10 +7,10 @@ import { useCallback, useMemo, useState } from "react";
 import { EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
 import {
   MetricCard,
+  type PortalTone,
   SoftBadge,
   TabBar,
 } from "@/app/_components/portal-dashboard-ui";
-import type { PortalTone } from "@/components/portal-shell";
 import { browserApi } from "@/lib/browser-api";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
 
