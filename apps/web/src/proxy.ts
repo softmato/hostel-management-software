@@ -204,6 +204,7 @@ export const config = {
     "/:hostelSlug/admin/:path*",
     "/resident/:path*",
     "/guardian/:path*",
+    "/cook/:path*",
     "/team/:path*",
     "/hostel-registration-track-sheet",
     "/jobs/:path*",

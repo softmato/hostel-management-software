@@ -7,7 +7,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PortalSearchEntry } from "@/lib/portal-nav";
 import { cn } from "@/lib/utils";
 
-type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team";
+type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team" | "cook" | "provider";
+
+const TEAM_TONE = {
+  active: "bg-role-team-soft/70",
+  focus: "focus-within:border-role-team/40 focus-within:ring-role-team/15",
+  text: "text-role-team",
+};
 
 const toneStyles: Record<PortalTone, { active: string; focus: string; text: string }> = {
   admin: {
@@ -30,11 +36,9 @@ const toneStyles: Record<PortalTone, { active: string; focus: string; text: stri
     focus: "focus-within:border-role-resident/40 focus-within:ring-role-resident/15",
     text: "text-role-resident",
   },
-  team: {
-    active: "bg-role-team-soft/70",
-    focus: "focus-within:border-role-team/40 focus-within:ring-role-team/15",
-    text: "text-role-team",
-  },
+  team: TEAM_TONE,
+  cook: TEAM_TONE,
+  provider: TEAM_TONE,
 };
 
 function normalize(value: string) {

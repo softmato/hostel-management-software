@@ -16,19 +16,19 @@ export function hostelDocumentsRequestedEmail(input: {
 
   return {
     category: "info",
-    subject: `Action needed on your hostel registration — ${input.hostelName}`,
+    subject: `Please send more documents — ${input.hostelName}`,
     html: emailLayout({
-      heading: "We need a few more documents",
+      heading: "Please send more documents",
       bodyHtml: [
         paragraph(
-          `Hi${input.ownerName ? ` ${escapeHtml(input.ownerName)}` : ""}, our team reviewed your registration for <strong>${escapeHtml(input.hostelName)}</strong> and needs some additional documents before we can approve it.`,
+          `Hi${input.ownerName ? ` ${escapeHtml(input.ownerName)}` : ""}, we checked <strong>${escapeHtml(input.hostelName)}</strong>. We need a few more documents before we can say yes.`,
         ),
         input.note ? paragraph(escapeHtml(input.note)) : "",
         `<ul style="padding-left:20px;margin:0 0 16px;color:#334155;">${listItems}</ul>`,
         paragraph(
-          "Please open your registration and upload the requested documents. Once submitted, your application returns to our review queue.",
+          "Please open your registration and upload these documents. Then we will check again.",
         ),
-        ctaButton(input.statusUrl, "Provide documents"),
+        ctaButton(input.statusUrl, "Upload documents"),
       ]
         .filter(Boolean)
         .join("\n"),

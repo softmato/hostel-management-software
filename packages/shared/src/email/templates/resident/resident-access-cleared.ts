@@ -31,19 +31,19 @@ export function residentAccessClearedEmail(input: {
 
   if (input.clearedRole) {
     items.push(
-      `Your previous <strong>${escapeHtml(roleLabel(input.clearedRole))}</strong> access has been closed. Your account is now a resident account.`,
+      `Your old <strong>${escapeHtml(roleLabel(input.clearedRole))}</strong> access is closed. Your account is now a resident account.`,
     );
   }
 
   for (const membership of input.clearedMemberships) {
     items.push(
-      `You have been removed as ${escapeHtml(roleLabel(membership.role).toLowerCase())} at <strong>${escapeHtml(membership.hostelName)}</strong>.`,
+      `You are no longer ${escapeHtml(roleLabel(membership.role).toLowerCase())} at <strong>${escapeHtml(membership.hostelName)}</strong>.`,
     );
   }
 
   if (input.reactivatedInvite) {
     items.push(
-      "An invitation you had never accepted has been closed, and your account is now active.",
+      "An old invite you did not accept is closed. Your account is now on.",
     );
   }
 
@@ -51,22 +51,22 @@ export function residentAccessClearedEmail(input: {
     category: "info",
     subject: `Your account is now a resident account at ${input.hostelName}`,
     html: emailLayout({
-      heading: "What changed on your account",
+      heading: "Your account has changed",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, now that <strong>${escapeHtml(input.hostelName)}</strong> has registered you as a resident, your account signs in as a resident.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> added you as a resident. So now you log in as a resident.`,
         ),
-        paragraph("To make that possible we cleared the following:"),
+        paragraph("So we removed this:"),
         `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.6;">${items
           .map((item) => `<li style="margin:0 0 8px;">${item}</li>`)
           .join("")}</ul>`,
         paragraph(
-          "Your password and Google sign-in are unchanged — sign in the way you always have. Nothing else about your account was touched.",
+          "Your password and Google login are the same. Log in the same way as before. Nothing else changed.",
         ),
         paragraph(
           input.supportEmail
-            ? `If any of this looks wrong, reply to this email or write to ${escapeHtml(input.supportEmail)} and we will put it back.`
-            : "If any of this looks wrong, reply to this email and we will put it back.",
+            ? `Something wrong? Reply to this email or write to ${escapeHtml(input.supportEmail)} and we will fix it.`
+            : "Something wrong? Reply to this email and we will fix it.",
         ),
       ].join("\n"),
     }),

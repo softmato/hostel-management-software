@@ -65,7 +65,10 @@ vi.mock("@/modules/service-providers/service-provider-notify", () => ({
   notifyPlatformOfServiceProviderApplication: vi.fn(),
 }));
 
-import { updateOwnServiceProviderJobStatus } from "@/modules/service-providers/service-provider.service";
+import {
+  acceptServiceProviderJob,
+  updateOwnServiceProviderJobStatus,
+} from "@/modules/service-providers/service-provider.service";
 
 const userId = "64f0f0f0f0f0f0f0f0f0f0a1";
 const providerId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a2");
@@ -221,5 +224,52 @@ describe("updateOwnServiceProviderJobStatus", () => {
       hostelIds: [hostelId.toString()],
       topics: ["maintenance"],
     });
+  });
+});
+
+describe("acceptServiceProviderJob", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.userFindById.mockReturnValue(selectQuery({ email: "plumber@example.com" }));
+    mocks.serviceProviderFindOne.mockReturnValue(
+      providerQuery({ _id: providerId, fullName: "Ram Plumbing", status: "APPROVED" }),
+    );
+    mocks.requestFindOneAndUpdate.mockReturnValue(
+      leanResult(job({ providerId, status: "CONTACTED" })),
+    );
+  });
+
+  // Two providers tapping Accept at once: the write is pinned to "still open",
+  // so exactly one wins and the other is told plainly.
+  it("only takes a job that is still unassigned and pending", async () => {
+    const result = await acceptServiceProviderJob(userId, jobId);
+
+    expect(mocks.requestFindOneAndUpdate.mock.calls[0]?.[0]).toMatchObject({
+      providerId: { $exists: false },
+      status: "PENDING",
+    });
+    expect(mocks.requestFindOneAndUpdate.mock.calls[0]?.[1]).toMatchObject({
+      $set: { providerId, status: "CONTACTED" },
+    });
+    expect(result.job.status).toBe("CONTACTED");
+  });
+
+  it("409s the provider who lost the race", async () => {
+    mocks.requestFindOneAndUpdate.mockReturnValue(leanResult(null));
+
+    await expect(acceptServiceProviderJob(userId, jobId)).rejects.toMatchObject({
+      errorCode: "MAINTENANCE_JOB_TAKEN",
+      status: 409,
+    });
+    expect(mocks.historyCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses an account that is not an approved provider", async () => {
+    mocks.serviceProviderFindOne.mockReturnValue(providerQuery(null));
+
+    await expect(acceptServiceProviderJob(userId, jobId)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(mocks.requestFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });

@@ -380,7 +380,7 @@ describe("createBooking", () => {
     expect(sent.emails).toEqual([
       expect.objectContaining({
         category: "billing",
-        subject: expect.stringMatching(/^Booking invoice HH-BKI-.* — Rs 700 for Everest Boys Hostel$/),
+        subject: expect.stringMatching(/^Please pay Rs 700 to book your bed — Everest Boys Hostel$/),
         to: "sita@example.test",
       }),
     ]);
@@ -530,8 +530,8 @@ describe("reviewBookingPayment", () => {
 
     expect(sent.emails.map((email) => [email.to, email.subject])).toEqual(
       expect.arrayContaining([
-        ["sita@example.test", expect.stringMatching(/^Receipt HH-BKR-/)],
-        ["owner@everest.test", expect.stringMatching(/^Sita Sharma booked a Double sharing — answer by /)],
+        ["sita@example.test", expect.stringMatching(/^Thank you! We got your booking fee/)],
+        ["owner@everest.test", expect.stringMatching(/^New booking from Sita Sharma — please answer by /)],
       ]),
     );
     expect(sent.bells).toEqual(
@@ -558,7 +558,7 @@ describe("reviewBookingPayment", () => {
 
     expect(view.paymentRejection?.reason).toBe("No payment of Rs 700 arrived with that reference.");
     expect(Date.parse(view.paymentDueBy)).toBeGreaterThan(Date.now() + 23 * 3_600_000);
-    expect(sent.emails[0]).toMatchObject({ subject: expect.stringMatching(/^We could not confirm your payment/) });
+    expect(sent.emails[0]).toMatchObject({ subject: expect.stringMatching(/^We could not find your payment/) });
 
     await expect(
       submitBookingPayment(booking.id, { proofAssetId: await uploadProof(guestId) }, guest),
@@ -652,7 +652,7 @@ describe("answering, cancelling and strikes", () => {
     expect(await current(id)).toMatchObject({ bedHeld: true });
     expect(sent.emails).toEqual([
       expect.objectContaining({
-        subject: expect.stringMatching(/^Everest Boys Hostel confirmed your booking — move in by /),
+        subject: expect.stringMatching(/^Your bed is booked at Everest Boys Hostel — move in by /),
         to: "sita@example.test",
       }),
     ]);
@@ -705,7 +705,7 @@ describe("answering, cancelling and strikes", () => {
 
     const email = sent.emails.find((message) => message.to === "sita@example.test");
 
-    expect(email?.subject).toMatch(/^The hostel declined your booking — booking BK-/);
+    expect(email?.subject).toMatch(/^The hostel said no — booking BK-/);
     expect(email?.html).toContain("Room under repair.");
     expect(email?.html).toContain("Rs 700");
     expect(sent.bells).toEqual(
@@ -785,8 +785,8 @@ describe("answering, cancelling and strikes", () => {
     expect(Hostel.docs[0]).toMatchObject({ bookingPause: { pausedAt: expect.any(Date), pausedBy: null } });
     expect(sent.emails.map((email) => email.subject)).toEqual(
       expect.arrayContaining([
-        "Bookings paused on Everest Boys Hostel",
-        "Bookings paused automatically — Everest Boys Hostel",
+        "Bookings are stopped for Everest Boys Hostel",
+        "Bookings stopped — Everest Boys Hostel",
       ]),
     );
     expect(await quote()).toMatchObject({ reason: "BOOKINGS_PAUSED" });
@@ -852,7 +852,7 @@ describe("answering, cancelling and strikes", () => {
       expect(Transfers.docs[0]).toMatchObject({ destination: { holderName: "Sita Sharma", method: "ESEWA", numberLast4: "4321" } });
       expect((await getMyBooking(id, guest)).refund).toMatchObject({ status: "SENT", transactionId: "ESW-889977" });
       expect(sent.emails).toEqual([
-        expect.objectContaining({ subject: expect.stringMatching(/^Refund sent — Rs 700 for booking BK-/), to: "sita@example.test" }),
+        expect.objectContaining({ subject: expect.stringMatching(/^We sent your money back — Rs 700/), to: "sita@example.test" }),
       ]);
       expect(await listTransfersDue("REFUND")).toEqual([]);
       await expect(markTransferSent(due!.id, { transactionId: "ESW-889977" }, superadmin)).rejects.toMatchObject({
@@ -883,7 +883,7 @@ describe("answering, cancelling and strikes", () => {
         documentNumber: expect.stringMatching(/^HH-BPO-/),
       });
       expect(sent.emails).toEqual([
-        expect.objectContaining({ subject: expect.stringMatching(/^Payout sent — Rs 420 for booking BK-/), to: "owner@everest.test" }),
+        expect.objectContaining({ subject: expect.stringMatching(/^We sent you Rs 420 for booking BK-/), to: "owner@everest.test" }),
       ]);
     });
 
@@ -1107,8 +1107,8 @@ describe("answering, cancelling and strikes", () => {
       await answerIn(1.5);
       expect(await sweepBookings()).toMatchObject({ hostelReminders: 1 });
       expect(sent.emails.map((email) => email.subject)).toEqual([
-        expect.stringMatching(/^Less than 12 hours to answer/),
-        expect.stringMatching(/^Less than 2 hours to answer/),
+        expect.stringMatching(/only 12 hours left$/),
+        expect.stringMatching(/only 2 hours left$/),
       ]);
 
       await answerIn(-0.001);

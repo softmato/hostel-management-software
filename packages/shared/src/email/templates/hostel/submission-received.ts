@@ -9,16 +9,16 @@ export function hostelSubmissionReceivedEmail(input: {
 
   return {
     category: "info",
-    subject: `We received your hostel registration — ${input.hostelName}`,
+    subject: `We got your hostel details — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Registration received",
+      heading: "We got your details",
       bodyHtml: [
         paragraph(greeting),
         paragraph(
-          `Thanks for registering <strong>${escapeHtml(input.hostelName)}</strong> on ${PLATFORM_NAME}. Our team will review your details and documents shortly.`,
+          `Thank you for adding <strong>${escapeHtml(input.hostelName)}</strong> to ${PLATFORM_NAME}. We will check your details and documents soon.`,
         ),
         paragraph(
-          "You will get another email as soon as your hostel is approved (with your admin access) or if we need anything else from you.",
+          "We will email you when your hostel is approved, or if we need anything more.",
         ),
       ].join("\n"),
     }),

@@ -65,6 +65,11 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     roles: [Role.SUPERADMIN],
   },
   {
+    // Resident Offer Program awards spend HostelPalika's money.
+    prefix: "/platform/offer-program",
+    roles: [Role.SUPERADMIN],
+  },
+  {
     prefix: "/platform",
     roles: [Role.SUPERADMIN, Role.PLATFORM_MODERATOR],
   },
@@ -104,6 +109,10 @@ export const protectedRouteRules: ProtectedRouteRule[] = [
     prefix: "/guardian",
     roles: [Role.GUARDIAN],
   },
+  {
+    prefix: "/cook",
+    roles: [Role.COOK],
+  },
   /*
    * The service provider's work list — the maintenance jobs hostels have
    * assigned to one account. It lives under `(public)` for URL reasons and was
@@ -127,7 +136,7 @@ export const roleLandingPath: Record<Role, string> = {
   [Role.PLATFORM_AGENT]: "/team",
   [Role.HOSTEL_ADMIN]: "/hostel-admin/dashboard",
   [Role.WARDEN]: "/hostel-admin/dashboard",
-  [Role.COOK]: "/",
+  [Role.COOK]: "/cook",
   [Role.RESIDENT]: "/resident/dashboard",
   [Role.GUARDIAN]: "/guardian/dashboard",
   [Role.PUBLIC]: "/",
@@ -141,6 +150,7 @@ export const roleAllowedNextPrefixes: Partial<Record<Role, string[]>> = {
   [Role.WARDEN]: ["/hostel-admin"],
   [Role.RESIDENT]: ["/resident"],
   [Role.GUARDIAN]: ["/guardian"],
+  [Role.COOK]: ["/cook"],
 };
 
 export function pathMatchesPrefix(pathname: string, prefix: string) {

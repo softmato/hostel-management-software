@@ -103,14 +103,14 @@ export function residentRegisteredEmail(input: {
         [
           `Your rent for <strong>${escapeHtml(monthName(input.firstMonth.period))}</strong> is <strong>${money(input.firstMonth.amount)}</strong>`,
           input.firstMonth.prorated
-            ? ", counted from the day you move in rather than a whole month"
+            ? ", only from the day you move in (not the full month)"
             : "",
           input.firstMonth.dueDate
-            ? `, due <strong>${escapeHtml(input.firstMonth.dueDate.toDateString())}</strong>`
+            ? `. Pay by <strong>${escapeHtml(input.firstMonth.dueDate.toDateString())}</strong>`
             : "",
           ".",
           input.firstMonth.referenceCode
-            ? ` Quote <strong>${escapeHtml(input.firstMonth.referenceCode)}</strong> when you pay, so the hostel can match your transfer to it.`
+            ? ` Write <strong>${escapeHtml(input.firstMonth.referenceCode)}</strong> when you pay, so the hostel knows it is your payment.`
             : "",
         ].join(""),
       )
@@ -119,20 +119,20 @@ export function residentRegisteredEmail(input: {
   const signIn =
     input.signIn === "EXISTING_ACCOUNT"
       ? paragraph(
-          "Nothing to activate and no new password to remember — sign in the way you always do, with the same email and password or with Google, and you will land on your resident dashboard.",
+          "No new password needed. Log in the same way as before (email and password, or Google).",
         )
       : paragraph(
-          "To see this in the app, ask the hostel for your activation code — they can issue it from your record. We never send passwords by email.",
+          "To use the app, ask the hostel for your code. We never send passwords by email.",
         );
 
   return {
     category: "info",
-    subject: `You are registered at ${input.hostelName}`,
+    subject: `Welcome to ${input.hostelName}`,
     html: emailLayout({
-      heading: "You are registered",
+      heading: "Welcome to your hostel",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has registered you as a resident. Here is what was agreed.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> added you as a resident. Here are your details.`,
         ),
         `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
           .map((fact) => `<li>${fact}</li>`)
@@ -141,7 +141,7 @@ export function residentRegisteredEmail(input: {
         signIn,
         ctaButton(input.dashboardUrl, "Open my dashboard"),
         paragraph(
-          "From there you can see your rent and payments, your meals, notices from the hostel, and raise complaints. If anything above is wrong, tell the hostel before you pay.",
+          "There you can see rent, payments, meals and notices, and send complaints. If anything above is wrong, tell the hostel before you pay.",
         ),
       ]
         .filter(Boolean)

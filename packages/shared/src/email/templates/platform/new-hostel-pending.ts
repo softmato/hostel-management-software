@@ -23,16 +23,16 @@ export function newHostelPendingEmail(input: {
 
   return {
     category: "info",
-    subject: `Hostel awaiting approval — ${input.hostelName}`,
+    subject: `New hostel to check — ${input.hostelName}`,
     html: emailLayout({
-      heading: "A hostel is waiting for review",
+      heading: "New hostel to check",
       bodyHtml: [
-        paragraph("A new hostel registration has been submitted and is pending approval."),
+        paragraph("A new hostel was added. It is waiting for approval."),
         paragraph(details.join("<br/>")),
         paragraph(
-          "Review the submitted documents before approving — approval issues the owner their admin access.",
+          "Check the documents first. When you approve, the owner gets admin access.",
         ),
-        ctaButton(input.queueUrl, "Open approval queue"),
+        ctaButton(input.queueUrl, "Check hostel"),
       ].join("\n"),
     }),
   };

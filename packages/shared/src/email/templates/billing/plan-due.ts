@@ -38,13 +38,13 @@ type PlanDueInput = {
 
 /** The app takes no plan payments, so the email is where the owner is sent to pay. */
 function payOnWebsite(payUrl: string) {
-  return smallPrint(`Please pay it on the ${PLATFORM_NAME} website: ${textLink(payUrl, payUrl)}`);
+  return smallPrint(`Pay on the ${PLATFORM_NAME} website: ${textLink(payUrl, payUrl)}`);
 }
 
-const ATTACHED = smallPrint("The invoice is attached to this email as a PDF.");
+const ATTACHED = smallPrint("The bill (PDF) is attached.");
 
 const ALREADY_PAID =
-  "Already paid? Send us the payment proof from your billing page and we will confirm it.";
+  "Already paid? Send us a photo of the payment from your billing page.";
 
 /** `today`, `tomorrow`, `in 3 days` — counted in Nepal calendar days. */
 function dueWhen(daysUntilDue: number) {
@@ -69,29 +69,29 @@ export function planDueSoonEmail(
 
   return {
     category: "billing",
-    subject: `Payment due ${when} — ${input.planName} · ${input.hostelName}`,
+    subject: `Please pay your hostel plan fee ${when} — ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.ownerName),
         paragraph(
-          `Your payment for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong> is due ${when}.`,
+          `Please pay your <strong>${escapeHtml(input.planName)}</strong> fee for <strong>${escapeHtml(input.hostelName)}</strong> ${when}.`,
         ),
         detailsTable([
-          { emphasis: true, label: "Amount due", value: formatRupees(input.amountDue) },
-          { label: "Due date", value: input.dueDate },
-          { label: "Invoice", value: input.invoiceNumber },
+          { emphasis: true, label: "To pay", value: formatRupees(input.amountDue) },
+          { label: "Pay by", value: input.dueDate },
+          { label: "Bill no.", value: input.invoiceNumber },
         ]),
         ctaButton(input.payUrl, "Pay now"),
         payOnWebsite(input.payUrl),
         input.attached ? ATTACHED : "",
-        input.live ? "" : smallPrint("Your listing goes live as soon as this is paid."),
+        input.live ? "" : smallPrint("Your hostel shows online after you pay."),
         smallPrint(ALREADY_PAID),
       ]
         .filter(Boolean)
         .join("\n"),
-      eyebrow: "Payment reminder",
-      heading: `Your plan payment is due ${when}`,
-      preheader: `${formatRupees(input.amountDue)} for ${input.planName}, due ${input.dueDate}.`,
+      eyebrow: "Reminder",
+      heading: `Please pay your plan fee ${when}`,
+      preheader: `Pay ${formatRupees(input.amountDue)} by ${input.dueDate}.`,
     }),
   };
 }
@@ -104,17 +104,17 @@ export function planDueSoonEmail(
 export function planOverdueEmail(input: PlanDueInput): EmailContent {
   return {
     category: "alert",
-    subject: `Payment overdue — ${input.planName} · ${input.hostelName}`,
+    subject: `Please pay your hostel plan fee — ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.ownerName),
         paragraph(
-          `Your payment for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong> is past its due date.`,
+          `Your <strong>${escapeHtml(input.planName)}</strong> fee for <strong>${escapeHtml(input.hostelName)}</strong> is late. Please pay now.`,
         ),
         detailsTable([
-          { emphasis: true, label: "Amount due", value: formatRupees(input.amountDue) },
-          { label: "Was due", value: input.dueDate },
-          { label: "Invoice", value: input.invoiceNumber },
+          { emphasis: true, label: "To pay", value: formatRupees(input.amountDue) },
+          { label: "Last date was", value: input.dueDate },
+          { label: "Bill no.", value: input.invoiceNumber },
         ]),
         ctaButton(input.payUrl, "Pay now"),
         payOnWebsite(input.payUrl),
@@ -123,9 +123,9 @@ export function planOverdueEmail(input: PlanDueInput): EmailContent {
       ]
         .filter(Boolean)
         .join("\n"),
-      eyebrow: "Overdue",
-      heading: "Your plan payment is overdue",
-      preheader: `${formatRupees(input.amountDue)} for ${input.planName} was due ${input.dueDate}.`,
+      eyebrow: "Late",
+      heading: "Please pay your plan fee",
+      preheader: `${formatRupees(input.amountDue)} is late. Last date was ${input.dueDate}.`,
       urgent: true,
     }),
   };

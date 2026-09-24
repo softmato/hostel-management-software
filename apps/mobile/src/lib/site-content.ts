@@ -79,6 +79,7 @@ const CONTENT_ICONS: Record<string, IoniconName> = {
   database: "server-outline",
   eye: "eye-outline",
   "file-text": "document-text-outline",
+  gift: "gift-outline",
   globe: "globe-outline",
   heart: "heart-outline",
   home: "home-outline",

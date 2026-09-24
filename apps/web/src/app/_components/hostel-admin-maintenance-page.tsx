@@ -234,7 +234,7 @@ export const HostelAdminMaintenancePageContent = React.memo(
                   onChange={(event) => setProviderId(event.target.value)}
                   value={providerId}
                 >
-                  <option value="">Contact manually later</option>
+                  <option value="">Send to every provider (first to accept)</option>
                   {matchingProviders.map((provider) => (
                     <option key={provider.id} value={provider.id}>
                       {provider.fullName} / {provider.area}
@@ -243,8 +243,8 @@ export const HostelAdminMaintenancePageContent = React.memo(
                 </Select>
                 {role && matchingProviders.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
-                    No approved {providerRoleLabel(role).toLowerCase()} yet — raise the
-                    request and assign one later.
+                    No approved {providerRoleLabel(role).toLowerCase()} yet — raise it and
+                    any provider can accept it from their jobs board.
                   </p>
                 ) : null}
               </div>

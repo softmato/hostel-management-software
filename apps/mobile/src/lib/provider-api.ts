@@ -1,15 +1,13 @@
 /**
- * The service provider surface: assigned jobs, and the provider's own record.
+ * The service provider surface: the job board, and the provider's own record.
  *
- * ## Assigned-only, and that is the server's shape
+ * ## One board, two lists
  *
- * `GET /public/service-providers/me/jobs` returns maintenance requests where
- * `providerId` is this provider — work a hostel admin handed them by name.
- * There is no broadcast board and no claim: PHASES.md §6.1's superseded note
- * records that decision, and nothing in `apps/web` implements one. So this app
- * must not draw an "available jobs" tab; a feed that is always empty because
- * the concept does not exist reads as a broken app rather than as a product
- * boundary.
+ * `GET /public/service-providers/me/jobs` returns `jobs` — requests assigned to
+ * this provider — and `available`: every unassigned PENDING request on the
+ * platform, any trade, the provider's own trade first. Only the matching trade
+ * is pushed a notification; the rest are just visible. `POST .../accept` takes
+ * one off the board atomically (owner's call, 2026-09-24).
  *
  * ## There is no SERVICE_PROVIDER role
  *
@@ -83,8 +81,12 @@ export type ProviderJob = {
   hostelName: string;
   hostelPhone: string;
   id: string;
+  /** Whether the job's trade is one this provider registered for. */
+  inMyTrade: boolean;
   /** Free text — "Room 204", "2nd floor bathroom". There are no room records. */
   location: string;
+  /** Whole NPR, frozen when the job was raised. `null` on jobs raised before fees. */
+  minimumCharge: number | null;
   priority: "HIGH" | "LOW" | "MEDIUM" | "URGENT";
   scheduledFor: string | null;
   status: "CANCELLED" | "COMPLETED" | "CONTACTED" | "PENDING" | "SCHEDULED";
@@ -100,12 +102,27 @@ export type ProviderJob = {
   voiceNoteAssetId: string | null;
 };
 
+/**
+ * `available` jobs carry no hostel phone and no voice note — both arrive once
+ * the provider accepts, so a board of plumbers does not all ring one hostel.
+ */
+export type ProviderJobBoard = { available: ProviderJob[]; jobs: ProviderJob[] };
+
 export async function listProviderJobs() {
-  const response = await api.get<ApiEnvelope<{ jobs: ProviderJob[] }>>(
+  const response = await api.get<ApiEnvelope<ProviderJobBoard>>(
     "/public/service-providers/me/jobs",
   );
 
-  return unwrap(response).jobs;
+  return unwrap(response);
+}
+
+/** Takes an open job. 409 `MAINTENANCE_JOB_TAKEN` when another provider won. */
+export async function acceptProviderJob(jobId: string) {
+  const response = await api.post<ApiEnvelope<{ job: { id: string; status: string } }>>(
+    `/public/service-providers/me/jobs/${jobId}/accept`,
+  );
+
+  return unwrap(response).job;
 }
 
 /** The two moves a provider may make. See `serviceProviderJobStatusSchema`. */

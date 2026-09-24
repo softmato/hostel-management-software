@@ -48,23 +48,23 @@ export function bookingInvoiceEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `Booking invoice ${input.invoiceNumber} — ${rupees(input.booking.fee)} for ${input.booking.hostelName}`,
+    subject: `Please pay ${rupees(input.booking.fee)} to book your bed — ${input.booking.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `Your booking at <strong>${escapeHtml(input.booking.hostelName)}</strong> is waiting for payment.`,
+          `Please pay to book your bed at <strong>${escapeHtml(input.booking.hostelName)}</strong>.`,
         ),
         bookingFactsTable(input.booking, [
-          { label: "Invoice", value: input.invoiceNumber },
+          { label: "Bill no.", value: input.invoiceNumber },
           { label: "Pay by", value: input.payBy },
         ]),
         paragraph(
-          `Open your booking, scan the ${PLATFORM_NAME} QR, pay <strong>${rupees(input.booking.fee)}</strong> and write <strong>${escapeHtml(input.booking.code)}</strong> in the remarks. Then upload the payment screenshot.`,
+          `Open your booking and scan the ${PLATFORM_NAME} QR. Pay <strong>${rupees(input.booking.fee)}</strong> and write <strong>${escapeHtml(input.booking.code)}</strong> in the remarks. Then send us the payment screenshot.`,
         ),
         ctaButton(input.bookingUrl, "Pay booking fee"),
         paragraph(
-          `We check the screenshot within ${input.paymentCheckHours} hours. The hostel then has ${input.hostelAnswerHours} hours to confirm your bed.`,
+          `We check it in ${input.paymentCheckHours} hours. Then the hostel has ${input.hostelAnswerHours} hours to say yes to your bed.`,
         ),
         paragraph("<strong>Refunds</strong>"),
         refundLadderTable({
@@ -72,10 +72,10 @@ export function bookingInvoiceEmail(
           noShowRefund: input.noShowRefund,
           rows: input.refundRows,
         }),
-        smallPrint(`Full refund policy: ${textLink(input.policyUrl, "read it here")}.`),
+        smallPrint(`Refund rules: ${textLink(input.policyUrl, "read here")}.`),
       ].join(""),
-      eyebrow: "Invoice",
-      heading: "Pay your booking fee",
+      eyebrow: "Bill",
+      heading: "Please pay your booking fee",
       preheader: `Pay ${rupees(input.booking.fee)} with code ${input.booking.code} to book ${input.booking.roomType} at ${input.booking.hostelName}.`,
     }),
   };
@@ -87,20 +87,20 @@ export function bookingProofReceivedEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `We have your payment screenshot — booking ${input.booking.code}`,
+    subject: `We got your payment screenshot — booking ${input.booking.code}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph("We have your payment screenshot and are checking it."),
+        paragraph("We got your payment screenshot. We are checking it now."),
         bookingFactsTable(input.booking, [
           { label: "Your reference", value: input.reference ?? "" },
-          { label: "Checked by", value: input.checkBy },
+          { label: "We check by", value: input.checkBy },
         ]),
-        paragraph("We will email you as soon as it is checked, whether or not it matches."),
+        paragraph("We will email you when it is checked."),
         ctaButton(input.bookingUrl, "View booking"),
       ].join(""),
       eyebrow: "Payment",
-      heading: "Payment screenshot received",
+      heading: "We got your screenshot",
       preheader: `We are checking your ${rupees(input.booking.fee)} payment for booking ${input.booking.code}.`,
     }),
   };
@@ -112,11 +112,11 @@ export function bookingPaymentRejectedEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `We could not confirm your payment — booking ${input.booking.code}`,
+    subject: `We could not find your payment — booking ${input.booking.code}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph("We could not match your screenshot to a payment we received."),
+        paragraph("We did not get the money shown in your screenshot."),
         detailsTable([{ label: "Reason", value: input.reason }]),
         bookingFactsTable(input.booking, [{ label: "Send again by", value: input.payBy }]),
         paragraph(
@@ -124,9 +124,9 @@ export function bookingPaymentRejectedEmail(
         ),
         ctaButton(input.bookingUrl, "Send screenshot again"),
       ].join(""),
-      eyebrow: "Action needed",
-      heading: "Payment not confirmed",
-      preheader: `Your screenshot for booking ${input.booking.code} could not be matched: ${input.reason}`,
+      eyebrow: "Please check",
+      heading: "We could not find your payment",
+      preheader: `Booking ${input.booking.code}: ${input.reason}`,
       urgent: true,
     }),
   };
@@ -146,12 +146,12 @@ export function bookingConfirmedEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `${input.booking.hostelName} confirmed your booking — move in by ${input.holdEndsAt}`,
+    subject: `Your bed is booked at ${input.booking.hostelName} — move in by ${input.holdEndsAt}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `<strong>${escapeHtml(input.booking.hostelName)}</strong> confirmed your booking. One ${escapeHtml(input.booking.roomType)} bed is held for you until <strong>${escapeHtml(input.holdEndsAt)}</strong>.`,
+          `<strong>${escapeHtml(input.booking.hostelName)}</strong> said yes. One ${escapeHtml(input.booking.roomType)} bed is kept for you until <strong>${escapeHtml(input.holdEndsAt)}</strong>.`,
         ),
         detailsTable([
           { label: "Booking", value: input.booking.code },
@@ -164,7 +164,7 @@ export function bookingConfirmedEmail(
         ]),
         input.directionsUrl ? ctaButton(input.directionsUrl, "Get directions") : "",
         paragraph(
-          `At the hostel, show your ${PLATFORM_NAME} ID card. The hostel scans it to admit you, and that completes the booking.`,
+          `At the hostel, show your ${PLATFORM_NAME} ID card. The hostel scans it and you can move in.`,
         ),
         paragraph("<strong>If you cancel</strong>"),
         detailsTable([
@@ -175,12 +175,12 @@ export function bookingConfirmedEmail(
           { label: `Not moved in by ${input.holdEndsAt}`, value: `${rupees(input.noShowRefund)} back` },
         ]),
         smallPrint(
-          `The booking fee does not count towards rent, admission fee or deposit. Those are paid to the hostel. ${textLink(input.bookingUrl, "View booking")}.`,
+          `The booking fee is not part of your rent, admission fee or deposit. You pay those to the hostel. ${textLink(input.bookingUrl, "View booking")}.`,
         ),
       ].join(""),
-      eyebrow: "Confirmed",
-      heading: "Your bed is held",
-      preheader: `One ${input.booking.roomType} bed at ${input.booking.hostelName} is held until ${input.holdEndsAt}.`,
+      eyebrow: "Booked",
+      heading: "Your bed is booked",
+      preheader: `One ${input.booking.roomType} bed at ${input.booking.hostelName} is kept for you until ${input.holdEndsAt}.`,
     }),
   };
 }
@@ -203,7 +203,7 @@ export function bookingMoveInReminderEmail(
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `Your bed at <strong>${escapeHtml(input.booking.hostelName)}</strong> is held until <strong>${escapeHtml(input.holdEndsAt)}</strong>, less than ${hoursWord(input.hoursLeft)} from now.`,
+          `Your bed at <strong>${escapeHtml(input.booking.hostelName)}</strong> is kept until <strong>${escapeHtml(input.holdEndsAt)}</strong>. Only ${hoursWord(input.hoursLeft)} left.`,
         ),
         detailsTable([
           { label: "Booking", value: input.booking.code },
@@ -214,13 +214,13 @@ export function bookingMoveInReminderEmail(
         ]),
         ctaButton(input.directionsUrl || input.bookingUrl, input.directionsUrl ? "Get directions" : "View booking"),
         paragraph(
-          `Show your ${PLATFORM_NAME} ID card at the hostel. If you have not moved in by then, the bed is released and ${
+          `Show your ${PLATFORM_NAME} ID card at the hostel. If you do not move in by then, you lose the bed and ${
             input.noShowRefund > 0
-              ? `${rupees(input.noShowRefund)} of the booking fee comes back`
-              : "the booking fee is not refunded"
+              ? `you get back ${rupees(input.noShowRefund)} of the booking fee`
+              : "you do not get the booking fee back"
           }.`,
         ),
-        smallPrint(`Plans changed? Cancelling before then returns more. ${textLink(input.bookingUrl, "View booking")}.`),
+        smallPrint(`Not coming? Cancel early to get more money back. ${textLink(input.bookingUrl, "View booking")}.`),
       ].join(""),
       eyebrow: "Reminder",
       heading: "Time to move in",
@@ -242,27 +242,27 @@ export function bookingRefundSentEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `Refund sent — ${rupees(input.amount)} for booking ${input.booking.code}`,
+    subject: `We sent your money back — ${rupees(input.amount)}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph("We sent your refund."),
+        paragraph("We sent your money back."),
         detailsTable([
           { emphasis: true, label: "Refund", value: rupees(input.amount) },
           { label: "Sent to", value: input.refundTo },
           { label: "Sent on", value: input.sentOn },
           { label: "Transaction ID", value: input.transactionId },
-          { label: "Refund note", value: input.documentNumber ?? "" },
+          { label: "Refund slip", value: input.documentNumber ?? "" },
           { label: "Booking", value: input.booking.code },
           { label: "Hostel", value: input.booking.hostelName },
         ]),
         paragraph(
-          "Your bank or wallet may take a while to show it. If it has not arrived, contact us with the transaction ID above.",
+          "It can take some time to show in your bank or wallet. Not there? Contact us with the transaction ID.",
         ),
         ctaButton(input.bookingUrl, "View booking"),
       ].join(""),
       eyebrow: "Refund",
-      heading: "Refund sent",
+      heading: "We sent your money back",
       preheader: `${rupees(input.amount)} sent to ${input.refundTo}. Transaction ${input.transactionId}.`,
     }),
   };
@@ -282,7 +282,7 @@ export type BookingEndCause =
 const ENDED_COPY: Record<BookingEndCause, { heading: string; line: (hostel: string) => string }> = {
   CANCELLED_BEFORE_CONFIRMATION: {
     heading: "Booking cancelled",
-    line: () => "You cancelled this booking before the hostel confirmed it.",
+    line: () => "You cancelled this booking before the hostel said yes.",
   },
   CANCELLED_BY_HOSTEL: {
     heading: "The hostel cancelled your booking",
@@ -294,23 +294,23 @@ const ENDED_COPY: Record<BookingEndCause, { heading: string; line: (hostel: stri
   },
   CANCELLED_BY_USER: {
     heading: "Booking cancelled",
-    line: () => "You cancelled this booking. The bed held for you is released.",
+    line: () => "You cancelled this booking. The bed is no longer kept for you.",
   },
   DECLINED: {
-    heading: "The hostel declined your booking",
-    line: (hostel) => `${hostel} declined your booking.`,
+    heading: "The hostel said no",
+    line: (hostel) => `${hostel} said no to your booking.`,
   },
   EXPIRED: {
     heading: "Booking closed",
-    line: () => "No payment screenshot arrived in time, so this booking is closed.",
+    line: () => "We did not get your payment screenshot in time, so this booking is closed.",
   },
   HOSTEL_NO_RESPONSE: {
     heading: "The hostel did not answer",
-    line: (hostel) => `${hostel} did not answer your booking in time, so it is cancelled.`,
+    line: (hostel) => `${hostel} did not answer in time, so the booking is cancelled.`,
   },
   NO_SHOW: {
     heading: "Your booking has ended",
-    line: () => "The time to move in has passed, so the bed held for you is released.",
+    line: () => "You did not move in on time, so the bed is no longer kept for you.",
   },
 };
 
@@ -330,7 +330,7 @@ export function bookingEndedEmail(
   const copy = ENDED_COPY[input.cause];
   const hostel = escapeHtml(input.booking.hostelName);
   const money = !input.paid
-    ? paragraph("Nothing was paid, so nothing is owed.")
+    ? paragraph("You did not pay anything, so you owe nothing.")
     : input.refund > 0
       ? [
           detailsTable([
@@ -338,10 +338,10 @@ export function bookingEndedEmail(
             { label: "Refund to", value: input.refundTo },
           ]),
           paragraph(
-            "We send the refund to the account above and email you the transaction ID once it is sent.",
+            "We will send the money to the account above and email you the transaction ID.",
           ),
         ].join("")
-      : paragraph("No refund is due under the refund policy you accepted.");
+      : paragraph("As per the refund rules, no money comes back.");
 
   return {
     category: "billing",
@@ -358,7 +358,7 @@ export function bookingEndedEmail(
       heading: copy.heading,
       preheader:
         input.paid && input.refund > 0
-          ? `${rupees(input.refund)} of your booking fee is coming back to ${input.refundTo}.`
+          ? `We will send ${rupees(input.refund)} of your booking fee back to ${input.refundTo}.`
           : `Booking ${input.booking.code} at ${input.booking.hostelName} has ended.`,
     }),
   };
@@ -370,23 +370,23 @@ export function bookingPaymentVerifiedEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `Receipt ${input.receiptNumber} — booking fee received`,
+    subject: `Thank you! We got your booking fee — ${input.booking.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph(`We received your booking fee. It is held by ${PLATFORM_NAME} until the booking ends.`),
+        paragraph(`We got your booking fee. ${PLATFORM_NAME} keeps it safe until the booking ends.`),
         bookingFactsTable(input.booking, [
           { label: "Receipt", value: input.receiptNumber },
           { label: "Paid on", value: input.paidOn },
           { label: "Hostel answers by", value: input.hostelAnswerBy },
         ]),
         paragraph(
-          `${escapeHtml(input.booking.hostelName)} now confirms your bed. If it declines or does not answer by ${escapeHtml(input.hostelAnswerBy)}, you get the full ${rupees(input.booking.fee)} back.`,
+          `Now ${escapeHtml(input.booking.hostelName)} will say yes or no. If it says no or does not answer by ${escapeHtml(input.hostelAnswerBy)}, you get all ${rupees(input.booking.fee)} back.`,
         ),
         ctaButton(input.bookingUrl, "View booking"),
       ].join(""),
       eyebrow: "Receipt",
-      heading: "Booking fee received",
+      heading: "We got your booking fee",
       preheader: `Receipt ${input.receiptNumber}: ${rupees(input.booking.fee)} for booking ${input.booking.code}.`,
     }),
   };

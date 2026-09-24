@@ -122,7 +122,7 @@ describe("SOS fan-out", () => {
       "owner@example.com",
       "warden@example.com",
     ]);
-    expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("URGENT");
+    expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("SOS");
     expect(mocks.notificationCreate.mock.calls[0][0]).toMatchObject({
       category: "SOS",
       data: expect.objectContaining({ priority: "URGENT" }),

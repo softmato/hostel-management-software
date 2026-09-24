@@ -29,12 +29,12 @@ export function gatewayUnhealthyEmail(input: {
       bodyHtml: [
         paragraph(escapeHtml(input.detail)),
         paragraph(
-          `This usually means the merchant details for ${escapeHtml(input.providerName)} have changed — a rotated key, a merchant code that was updated, or online acceptance switched off by your bank. Nothing is wrong with the money already collected.`,
+          `Your ${escapeHtml(input.providerName)} details may have changed (key, merchant code, or your bank turned off online payments). The money you already got is safe.`,
         ),
         paragraph(
-          "Your residents can still pay by QR, wallet or bank transfer in the meantime, and those still reach you the usual way.",
+          "Residents can still pay by QR, wallet or bank. That money still reaches you.",
         ),
-        ctaButton(input.setupUrl, "Check payment setup"),
+        ctaButton(input.setupUrl, "Check payment settings"),
       ].join("\n"),
     }),
   };

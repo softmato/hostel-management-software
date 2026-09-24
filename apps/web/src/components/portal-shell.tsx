@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   CalendarDays,
+  Camera,
   ChartNoAxesColumn,
   ChevronDown,
   ClipboardList,
@@ -71,7 +72,7 @@ import { usePortalResource, usePrefetchPortalHref } from "@/lib/portal-query";
 import { useSiteConfig } from "@/components/site-config-provider";
 import { cn } from "@/lib/utils";
 
-type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team";
+type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team" | "cook" | "provider";
 
 type PortalShellProps = {
   children: ReactNode;
@@ -91,6 +92,7 @@ const iconMap: Record<PortalIconName, LucideIcon> = {
   bell: Bell,
   building: Building2,
   calendar: CalendarDays,
+  camera: Camera,
   card: CreditCard,
   chart: ChartNoAxesColumn,
   clipboard: ClipboardList,
@@ -136,11 +138,24 @@ const iconMap: Record<PortalIconName, LucideIcon> = {
  */
 const NOTIFICATIONS_HREF: Record<PortalTone, string> = {
   admin: "/hostel-admin/inbox",
+  cook: "/cook/notifications",
   guardian: "/guardian/notifications",
   platform: "/platform/inbox",
+  provider: "/jobs/notifications",
   resident: "/resident/notifications",
   // An agent reads the platform's inbox; the desk has no feed of its own.
   team: "/platform/inbox",
+};
+
+const TEAM_TONE = {
+  active: "bg-brand-teal text-white shadow-sm",
+  badge: "border-role-team/25 bg-role-team-soft text-role-team",
+  brand: "text-role-team",
+  brandSoft: "bg-brand-teal",
+  hover: "hover:bg-role-team-soft/70 hover:text-role-team",
+  ring: "ring-role-team/20",
+  softBg: "bg-role-team-soft",
+  text: "text-role-team",
 };
 
 const toneStyles: Record<
@@ -219,16 +234,10 @@ const toneStyles: Record<
    * only ever carries text and icons. Painting the pill with the bright value
    * would have put white on #34d399 at 1.8:1.
    */
-  team: {
-    active: "bg-brand-teal text-white shadow-sm",
-    badge: "border-role-team/25 bg-role-team-soft text-role-team",
-    brand: "text-role-team",
-    brandSoft: "bg-brand-teal",
-    hover: "hover:bg-role-team-soft/70 hover:text-role-team",
-    ring: "ring-role-team/20",
-    softBg: "bg-role-team-soft",
-    text: "text-role-team",
-  },
+  team: TEAM_TONE,
+  // The cook and provider apps wear the product green too.
+  cook: TEAM_TONE,
+  provider: TEAM_TONE,
 };
 
 type PlanState = {

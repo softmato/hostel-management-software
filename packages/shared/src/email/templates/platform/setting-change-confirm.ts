@@ -31,25 +31,25 @@ export function settingChangeConfirmEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: `Confirm the change to ${input.settingLabel}`,
+    subject: `Please confirm: ${input.settingLabel} change`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `You changed <strong>${escapeHtml(input.settingLabel)}</strong>. Nothing is saved until you confirm it.`,
+          `You changed <strong>${escapeHtml(input.settingLabel)}</strong>. It is not saved until you confirm.`,
         ),
         comparisonTable(input.rows),
         ctaButton(input.confirmUrl, "Confirm change"),
         smallPrint(
-          `The link works once, only while you are signed in as this superadmin, until ${escapeHtml(input.expiresAt)}.`,
+          `This link works one time, until ${escapeHtml(input.expiresAt)}, only while you are logged in as this superadmin.`,
         ),
         smallPrint(
-          "If you did not make this change, do not open the link. Sign out of every device and secure your Google account.",
+          "Not you? Do not open the link. Log out of all devices and change your Google password.",
         ),
       ].join(""),
       eyebrow: "Security",
-      heading: "Confirm a settings change",
-      preheader: `Confirm the change to ${input.settingLabel}. Nothing is saved until you do.`,
+      heading: "Please confirm this change",
+      preheader: `Confirm the ${input.settingLabel} change. It is not saved until you do.`,
       siteName: input.siteName,
     }),
   };

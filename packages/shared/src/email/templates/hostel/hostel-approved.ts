@@ -21,44 +21,44 @@ export function hostelApprovedEmail(input: {
         paragraph(
           `Email: <strong>${escapeHtml(input.credentials.email)}</strong><br/>Temporary password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
         ),
-        paragraph("You will be asked to set a new password on first login."),
+        paragraph("When you first log in, you will set a new password."),
         paragraph(
-          "Prefer Google? If this address is a Google account, you can simply click <strong>Continue with Google</strong> on the login page and skip the password entirely — it signs you into the same hostel admin account.",
+          "Use Google? If this email is a Google account, just tap <strong>Continue with Google</strong> on the login page. No password needed.",
         ),
       ]
     : [
         paragraph(
-          "Log in with the account you registered with — it has been upgraded to hostel admin access.",
+          "Log in with the same account you used to register. It is now a hostel admin account.",
         ),
       ];
 
   const cookBlock = input.cookCredentials
     ? [
         `<hr style="margin:28px 0;border:none;border-top:1px solid #e2e8f0;" />`,
-        `<p style="margin:0 0 12px;font-size:16px;font-weight:600;">Cook portal access</p>`,
+        `<p style="margin:0 0 12px;font-size:16px;font-weight:600;">Cook login</p>`,
         paragraph(
-          `We created a shared kitchen login for <strong>${escapeHtml(input.cookCredentials.cookName)}</strong>. Give it to whoever is cooking — they can announce meals to residents from their phone.`,
+          `We made a kitchen login for <strong>${escapeHtml(input.cookCredentials.cookName)}</strong>. Give it to your cook. They can tell residents about meals from their phone.`,
         ),
         paragraph(
-          `Login: <strong>${escapeHtml(input.cookCredentials.email)}</strong><br/>First-time password: <strong>${escapeHtml(input.cookCredentials.temporaryPassword)}</strong>`,
+          `Login: <strong>${escapeHtml(input.cookCredentials.email)}</strong><br/>Password: <strong>${escapeHtml(input.cookCredentials.temporaryPassword)}</strong>`,
         ),
         paragraph(
-          "The first cook to sign in will be asked to choose a new password — that becomes the kitchen's shared password, and any other cook signs in with it too.",
+          "The first cook to log in sets a new password. All cooks use that same password.",
         ),
         paragraph(
-          "Treat it like a key: share it only with cooking staff, and rotate it from your Food page whenever someone leaves. It can only announce meals — it cannot see payments, complaints, or resident contact details.",
+          "Keep it safe. Share it only with cooks. When a cook leaves, make a new password from your Food page. Cooks cannot see payments, complaints or resident details.",
         ),
       ]
     : [];
 
   return {
     category: "info",
-    subject: `Your hostel is approved — ${input.hostelName}`,
+    subject: `Good news! Your hostel is approved — ${input.hostelName}`,
     html: emailLayout({
       heading: "Hostel approved 🎉",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> has been approved and is now part of ${PLATFORM_NAME}.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> is approved. It is now on ${PLATFORM_NAME}.`,
         ),
         ...credentialsBlock,
         ctaButton(input.loginUrl, "Go to your dashboard"),

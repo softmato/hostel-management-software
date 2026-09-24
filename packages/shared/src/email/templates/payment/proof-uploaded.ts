@@ -17,7 +17,7 @@ export function paymentProofUploadedEmail(input: {
   const detailLines = [
     `Resident: <strong>${escapeHtml(input.residentName)}</strong>`,
     `Month: <strong>${escapeHtml(monthName(input.month))}</strong>`,
-    `Amount claimed: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong>`,
+    `Amount: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong>`,
     input.method ? `Method: <strong>${escapeHtml(input.method)}</strong>` : null,
     // Three different things were all being labelled "Reference": the
     // invoice's matching code, the resident's free-text note, and the
@@ -38,15 +38,15 @@ export function paymentProofUploadedEmail(input: {
 
   return {
     category: "billing",
-    subject: `Payment proof to verify — ${input.residentName} · ${monthName(input.month)}`,
+    subject: `Please check a payment — ${input.residentName} · ${monthName(input.month)}`,
     html: emailLayout({
-      heading: "New payment proof submitted",
+      heading: "New payment to check",
       bodyHtml: [
         paragraph(
-          `A resident at <strong>${escapeHtml(input.hostelName)}</strong> uploaded a payment proof for your review.`,
+          `A resident at <strong>${escapeHtml(input.hostelName)}</strong> sent a payment photo. Please check it.`,
         ),
         paragraph(detailLines.join("<br/>")),
-        ctaButton(input.reviewUrl, "Review payment proof"),
+        ctaButton(input.reviewUrl, "Check payment"),
       ].join("\n"),
     }),
   };

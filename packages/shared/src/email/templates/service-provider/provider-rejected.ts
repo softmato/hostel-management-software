@@ -7,19 +7,19 @@ export function serviceProviderRejectedEmail(input: {
 }): EmailContent {
   return {
     category: "info",
-    subject: "About your service provider registration",
+    subject: "You are not approved yet",
     html: emailLayout({
-      heading: "Registration not approved",
+      heading: "Not approved",
       bodyHtml: [
         paragraph(`Hi ${escapeHtml(input.fullName)},`),
         paragraph(
-          "We were not able to approve your service provider listing at this time.",
+          "We cannot approve you right now.",
         ),
         input.reason
           ? paragraph(`<strong>Reason:</strong> ${escapeHtml(input.reason)}`)
           : "",
         paragraph(
-          "You are welcome to register again with corrected details or clearer documents.",
+          "You can register again with correct details or clearer documents.",
         ),
       ]
         .filter(Boolean)

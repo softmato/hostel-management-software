@@ -21,6 +21,7 @@ import { serviceProviderApprovedEmail } from "@hostel/shared/email/templates/ser
 import { serviceProviderRegistrationReceivedEmail } from "@hostel/shared/email/templates/service-provider/registration-received";
 import { serviceProviderRejectedEmail } from "@hostel/shared/email/templates/service-provider/provider-rejected";
 import { loadSiteConfig } from "@/lib/site-config-server";
+import { categoryForRole } from "@/lib/maintenance-role-suggest";
 import { normalizeProviderCategories } from "@/modules/service-providers/service-provider.validation";
 import { notifyStaffOfJobProgress } from "@/modules/maintenance/maintenance-notify";
 import {
@@ -43,7 +44,9 @@ type MaintenanceJobRecord = {
   description?: string;
   hostelId: Types.ObjectId;
   location?: string;
+  minimumCharge?: number;
   priority: string;
+  providerId?: Types.ObjectId;
   scheduledFor?: Date;
   status: string;
   title: string;
@@ -646,16 +649,16 @@ async function updateProviderStatus(
 }
 
 /**
- * The jobs a hostel has assigned to the signed-in provider.
+ * The signed-in provider's job board: `jobs` assigned to them, and `available`
+ * — every unassigned PENDING request on the platform, any trade, theirs first.
  *
- * The provider's only web surface: they have no portal and no hostel scope, so
- * this reads through their own approved provider record and returns nothing at
- * all for anyone else — an unapproved or non-provider account gets an empty
- * list rather than an error, because "no jobs" is exactly what they have.
+ * An unapproved or non-provider account gets two empty lists rather than an
+ * error, because "no jobs" is exactly what they have.
  *
- * Hostel name, area and phone ride along because a job with no way to reach the
- * hostel is not actionable. Nothing about residents is included: a maintenance
- * job is about a place, not the people living in it.
+ * An available job carries no hostel phone and no voice note: those arrive once
+ * the provider accepts it, so ten plumbers do not all ring the same hostel. The
+ * voice note is also PRIVATE and `files/{id}/url` grants only the assigned
+ * provider. Nothing about residents is included either way.
  */
 export async function listOwnServiceProviderJobs(userId: string) {
   await connectToDatabase();
@@ -663,55 +666,143 @@ export async function listOwnServiceProviderJobs(userId: string) {
   const provider = await findOwnProvider(userId, { status: "APPROVED" });
 
   if (!provider) {
-    return { jobs: [] };
+    return { available: [], jobs: [] };
   }
 
-  const requests = await MaintenanceRequestModel.find({
-    isDeleted: false,
-    providerId: provider._id,
-  })
-    .sort({ createdAt: -1 })
-    .limit(100)
-    .lean<MaintenanceJobRecord[]>();
+  const [requests, open] = await Promise.all([
+    MaintenanceRequestModel.find({ isDeleted: false, providerId: provider._id })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean<MaintenanceJobRecord[]>(),
+    MaintenanceRequestModel.find({
+      isDeleted: false,
+      providerId: { $exists: false },
+      status: "PENDING",
+    })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean<MaintenanceJobRecord[]>(),
+  ]);
 
   const hostels = await HostelModel.find({
-    _id: { $in: requests.map((request) => request.hostelId) },
+    _id: { $in: [...requests, ...open].map((request) => request.hostelId) },
   })
     .select("contact location name")
     .lean<HostelContactRecord[]>();
 
   const hostelById = new Map(hostels.map((hostel) => [hostel._id.toString(), hostel]));
+  const myCategories = new Set<string>(providerCategories(provider).map(categoryForRole));
+
+  const serialize = (request: MaintenanceJobRecord, accepted: boolean) => {
+    const hostel = hostelById.get(request.hostelId.toString());
+
+    return {
+      category: request.category,
+      createdAt: request.createdAt?.toISOString() ?? null,
+      description: request.description ?? "",
+      hostelArea: hostel?.location?.area ?? "",
+      hostelCity: hostel?.location?.city ?? "",
+      hostelName: hostel?.name ?? "A hostel",
+      hostelPhone: accepted ? (hostel?.contact?.phone ?? "") : "",
+      id: request._id.toString(),
+      inMyTrade: myCategories.has(request.category),
+      location: request.location ?? "",
+      minimumCharge: request.minimumCharge ?? null,
+      priority: request.priority,
+      scheduledFor: request.scheduledFor?.toISOString() ?? null,
+      status: request.status,
+      title: request.title,
+      // Read through `files/{assetId}/url`, which grants exactly the provider
+      // this job is assigned to — the route is the authorization, not this list.
+      voiceNoteAssetId: accepted ? (request.voiceNoteAssetId?.toString() ?? null) : null,
+    };
+  };
 
   return {
-    jobs: requests.map((request) => {
-      const hostel = hostelById.get(request.hostelId.toString());
-
-      return {
-        category: request.category,
-        createdAt: request.createdAt?.toISOString() ?? null,
-        description: request.description ?? "",
-        hostelArea: hostel?.location?.area ?? "",
-        hostelCity: hostel?.location?.city ?? "",
-        hostelName: hostel?.name ?? "A hostel",
-        hostelPhone: hostel?.contact?.phone ?? "",
-        id: request._id.toString(),
-        location: request.location ?? "",
-        priority: request.priority,
-        scheduledFor: request.scheduledFor?.toISOString() ?? null,
-        status: request.status,
-        title: request.title,
-        /*
-         * The hostel's spoken description of the problem, if one was recorded.
-         *
-         * Read through `files/{assetId}/url`, which grants exactly the provider
-         * this job is assigned to — see `isAssignedProvider` there. The id is
-         * safe to hand over because the route is the authorization, not this
-         * list: possessing the id has never been what grants access to an asset.
-         */
-        voiceNoteAssetId: request.voiceNoteAssetId?.toString() ?? null,
-      };
-    }),
+    // Stable sort: the provider's own trade first, newest first within each.
+    available: open
+      .map((request) => serialize(request, false))
+      .sort((left, right) => Number(right.inMyTrade) - Number(left.inMyTrade)),
+    jobs: requests.map((request) => serialize(request, true)),
   };
+}
+
+/**
+ * A provider taking an open job off the board.
+ *
+ * Pinned to "still unassigned and PENDING", so two providers tapping at once
+ * cannot both win — the loser gets a 409 that says somebody else has it. The
+ * job moves straight to CONTACTED ("picked up" in the hostel's notification):
+ * accepting is the provider saying they are on it.
+ *
+ * Any trade may be accepted — the board shows every job on purpose, and plenty
+ * of local tradespeople do more than they registered for. The hostel sees who
+ * took it and can cancel.
+ */
+export async function acceptServiceProviderJob(userId: string, jobId: string) {
+  await connectToDatabase();
+
+  const provider = await findOwnProvider(userId, { status: "APPROVED" });
+
+  if (!provider) {
+    throw new ServiceProviderServiceError(
+      "Job was not found.",
+      "MAINTENANCE_REQUEST_NOT_FOUND",
+      404,
+    );
+  }
+
+  const accepted = await MaintenanceRequestModel.findOneAndUpdate(
+    {
+      _id: normalizeObjectId(jobId, "job id"),
+      isDeleted: false,
+      providerId: { $exists: false },
+      status: "PENDING",
+    },
+    { $set: { providerId: provider._id, status: "CONTACTED", updatedBy: userId } },
+    { new: true },
+  ).lean<MaintenanceJobRecord | null>();
+
+  if (!accepted) {
+    throw new ServiceProviderServiceError(
+      "Another provider already took this job, or the hostel closed it.",
+      "MAINTENANCE_JOB_TAKEN",
+      409,
+    );
+  }
+
+  await MaintenanceHistoryModel.create({
+    action: "MAINTENANCE_PROVIDER_ACCEPTED",
+    actorId: userId,
+    hostelId: accepted.hostelId,
+    nextStatus: "CONTACTED",
+    note: `Accepted by ${provider.fullName}.`,
+    previousStatus: "PENDING",
+    requestId: accepted._id,
+  });
+
+  await AuditLogModel.create({
+    action: "MAINTENANCE_PROVIDER_ACCEPTED",
+    actorId: userId,
+    entityId: accepted._id.toString(),
+    entityType: "MaintenanceRequest",
+    hostelId: accepted.hostelId,
+    metadata: { providerId: provider._id.toString(), source: "SERVICE_PROVIDER" },
+  });
+
+  await publishResourceChange({
+    hostelIds: [accepted.hostelId.toString()],
+    topics: [REALTIME_TOPIC.MAINTENANCE],
+  });
+
+  await notifyStaffOfJobProgress({
+    actorUserId: userId,
+    previousStatus: "PENDING",
+    providerName: provider.fullName,
+    request: accepted,
+  });
+
+  return { job: { id: accepted._id.toString(), status: accepted.status } };
 }
 
 /**

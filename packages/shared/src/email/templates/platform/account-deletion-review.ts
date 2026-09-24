@@ -27,21 +27,21 @@ export function accountDeletionReviewEmail(input: {
     category: "alert",
     subject: `Account deletion request from ${input.requesterName ?? input.requesterEmail}`,
     html: emailLayout({
-      heading: "Account deletion request needs review",
+      heading: "Someone wants to delete their account",
       bodyHtml: [
         paragraph(
           `${who} — <strong>${escapeHtml(input.requesterRole)}</strong> — has asked for their account to be deleted.`,
         ),
         input.hostelNames.length > 0
           ? paragraph(
-              `Hostels attached to this account: <strong>${escapeHtml(input.hostelNames.join(", "))}</strong>. Deleting the account without handing these over would leave their residents, payments and staff without an administrator.`,
+              `Hostels on this account: <strong>${escapeHtml(input.hostelNames.join(", "))}</strong>. If you delete it first, these hostels will have no admin.`,
             )
-          : paragraph("No hostels are currently attached to this account."),
+          : paragraph("No hostels are on this account."),
         paragraph(`Their reason: “${escapeHtml(input.reason)}”`),
         paragraph(
-          "Nothing has changed on the account. It stays active and they can still sign in until you approve the request.",
+          "Nothing has changed yet. They can still log in until you say yes.",
         ),
-        ctaButton(input.queueUrl, "Review the request"),
+        ctaButton(input.queueUrl, "Check request"),
       ].join("\n"),
     }),
   };

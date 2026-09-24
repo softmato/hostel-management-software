@@ -9,18 +9,18 @@ export function credentialsIssuedEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: `Your ${PLATFORM_NAME} account credentials`,
+    subject: `Your ${PLATFORM_NAME} login details`,
     html: emailLayout({
       heading: "Your account is ready",
       bodyHtml: [
         paragraph(
-          `A ${PLATFORM_NAME} account has been created for you with the role <strong>${escapeHtml(input.roleLabel)}</strong>.`,
+          `We made a ${PLATFORM_NAME} account for you as <strong>${escapeHtml(input.roleLabel)}</strong>.`,
         ),
         paragraph(
           `Email: <strong>${escapeHtml(input.email)}</strong><br/>Temporary password: <strong>${escapeHtml(input.temporaryPassword)}</strong>`,
         ),
         paragraph(
-          "You will be asked to set a new password the first time you log in. Do not share this temporary password with anyone.",
+          "When you first log in, you will set a new password. Do not share this password with anyone.",
         ),
         ctaButton(input.loginUrl, "Log in"),
       ].join("\n"),

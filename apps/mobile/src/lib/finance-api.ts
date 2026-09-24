@@ -71,7 +71,14 @@ export type ResidentInvoice = {
   month: string | null;
   paidAmount: number;
   paidDate?: string;
-  receipts: { amount: number; id: string; issuedAt: string | null; number: string }[];
+  receipts: {
+    amount: number;
+    /** Set when the receipt is certified under the Resident Offer Program. */
+    certificationCode: string | null;
+    id: string;
+    issuedAt: string | null;
+    number: string;
+  }[];
   /**
    * The code to put in the bank transfer's remarks. Shown on the list, not just
    * behind "Pay now" — a resident paying from their banking app out of habit

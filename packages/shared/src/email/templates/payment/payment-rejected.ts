@@ -9,18 +9,18 @@ export function paymentRejectedEmail(input: {
 }): EmailContent {
   return {
     category: "billing",
-    subject: `Payment proof needs attention — ${monthName(input.month)} · ${input.hostelName}`,
+    subject: `Please send your payment photo again — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
-      heading: "Payment proof was not accepted",
+      heading: "Your payment photo was not accepted",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} could not verify the payment proof you uploaded for <strong>${escapeHtml(monthName(input.month))}</strong>.`,
+          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} could not check your payment photo for <strong>${escapeHtml(monthName(input.month))}</strong>.`,
         ),
         paragraph(`Reason: <strong>${escapeHtml(input.rejectionReason)}</strong>`),
         paragraph(
-          "You can upload a corrected proof for the same payment from your dashboard.",
+          "Please send a correct photo again from your dashboard.",
         ),
-        ctaButton(input.paymentsUrl, "Upload a new proof"),
+        ctaButton(input.paymentsUrl, "Send photo again"),
       ].join("\n"),
     }),
   };

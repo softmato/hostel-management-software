@@ -51,13 +51,13 @@ export function refundLadderTable(input: {
   rows: RefundLadderRow[];
 }) {
   return detailsTable([
-    { label: "Cancel before the hostel confirms", value: rupees(input.fee) },
-    { label: "Hostel declines or does not answer", value: rupees(input.fee) },
+    { label: "Cancel before the hostel says yes", value: rupees(input.fee) },
+    { label: "Hostel says no or does not answer", value: rupees(input.fee) },
     ...input.rows.map((row) => ({
       label:
         row.fromDay === row.throughDay
-          ? `Cancel on day ${row.fromDay} after confirmation`
-          : `Cancel on days ${row.fromDay}–${row.throughDay} after confirmation`,
+          ? `Cancel on day ${row.fromDay} after the hostel says yes`
+          : `Cancel on days ${row.fromDay}–${row.throughDay} after the hostel says yes`,
       value: `${rupees(row.refund)} (${row.refundPercent}%)`,
     })),
     { label: "Never move in", value: rupees(input.noShowRefund) },

@@ -41,7 +41,10 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/cron/gateway-settlement-recon/**",
   "/api/v1/cron/hostel-purge/**",
   "/api/v1/cron/ledger-drift/**",
-  "/api/v1/cron/payment-reminders/**",
+  // Plan-due reminders render the invoice PDF, and they run from the push
+  // schedule now — the dispatch cron and the Push tab's own routes reach them.
+  // `payment-reminders` stopped reaching it when the reminders moved.
+  "/api/v1/cron/notification-dispatch/**",
   "/api/v1/cron/platform-push/**",
   "/api/v1/files/*/complete/**",
   "/api/v1/files/upload/**",
@@ -59,7 +62,9 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/hostel-registration/**",
   "/api/v1/platform/bookings/**",
   "/api/v1/platform/hostels/**",
+  "/api/v1/platform/offer-program/**",
   "/api/v1/platform/payments/**",
+  "/api/v1/platform/push/**",
   "/api/v1/platform/reports/**",
   "/api/v1/platform/subscriptions/cash/**",
   "/api/v1/platform/subscriptions/claims/**",
@@ -72,6 +77,7 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/resident/finance/invoices/**",
   "/api/v1/resident/finance/receipts/**",
   "/api/v1/resident/finance/statement/**",
+  "/api/v1/resident/offer-program/**",
   "/api/v1/team/email-check/**",
   "/api/v1/team/hostels/**",
   "/api/v1/team/prepayments/**",

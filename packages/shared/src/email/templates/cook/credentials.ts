@@ -24,23 +24,23 @@ export function cookCredentialsEmail(input: {
       ? `New cook password — ${input.hostelName}`
       : `Cook sign-in for ${input.cookName} — ${input.hostelName}`,
     html: emailLayout({
-      heading: input.rotated ? "A new cook password" : "A cook sign-in is ready",
+      heading: input.rotated ? "New cook password" : "Cook login is ready",
       bodyHtml: [
         paragraph(
           input.rotated
-            ? `A fresh password has been issued for <strong>${escapeHtml(input.cookName)}</strong> at <strong>${escapeHtml(input.hostelName)}</strong>. The previous one no longer works.`
-            : `A sign-in has been created for <strong>${escapeHtml(input.cookName)}</strong> at <strong>${escapeHtml(input.hostelName)}</strong>.`,
+            ? `Here is a new password for <strong>${escapeHtml(input.cookName)}</strong> at <strong>${escapeHtml(input.hostelName)}</strong>. The old one does not work now.`
+            : `Here is the login for <strong>${escapeHtml(input.cookName)}</strong> at <strong>${escapeHtml(input.hostelName)}</strong>.`,
         ),
         paragraph(
-          `Sign-in: <strong>${escapeHtml(input.credentials.email)}</strong><br/>First-time password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
+          `Login: <strong>${escapeHtml(input.credentials.email)}</strong><br/>Password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
         ),
         paragraph(
-          "Hand both to your cook. They will be asked to choose their own password the first time they sign in, and after that nobody — including you — can read it back; if it is lost, issue a new one from the Cooks screen.",
+          "Give both to your cook. On first login, they will set their own password. Nobody can see it after that. If they forget it, make a new one from the Cooks screen.",
         ),
         paragraph(
-          "This account can announce meals and post food photos. It cannot see resident records, payments or complaints.",
+          "The cook can only tell residents about meals and post food photos. They cannot see residents, payments or complaints.",
         ),
-        ctaButton(input.loginUrl, "Open the sign-in page"),
+        ctaButton(input.loginUrl, "Log in"),
       ].join("\n"),
     }),
   };

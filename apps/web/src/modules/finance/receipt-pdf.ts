@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { PDFDocument as PDFDocumentType } from "pdf-lib";
 
 import { formatNPR } from "@/modules/finance/money";
+import { PLATFORM_NAME, PLATFORM_NAME_PARTS, PLATFORM_SITE_URL } from "@hostel/shared/brand/brand";
 
 /**
  * Renders a receipt as a PDF (target §4.4, current §7.12).
@@ -74,18 +75,16 @@ export const RECEIPT_NUMBER_PATTERN = /\bRCP[-\s]?[A-Z]{3}[-\s]?\d{4}[-\s]?\d{2}
 /** The footer sentence, minus the wording a recogniser is likely to mangle. */
 export const SYSTEM_DOCUMENT_FOOTER = /not\s+a\s+proof[-\s]?of[-\s]?payment\s+upload/i;
 
-/**
- * The qualifier a provisional receipt carries (item E.7).
- *
- * Exported so the tests and the screens quote the same sentence — a receipt that
- * hedges in the PDF and not in the app has told the resident two things.
- */
-export const SUBJECT_TO_CONFIRMATION =
-  "Subject to confirmation against our account statement.";
+/** Where a certified receipt's code is checked — printed, and behind the QR. */
+export function receiptVerifyUrl(certificationCode: string): string {
+  return `${PLATFORM_SITE_URL}/verify-receipt?code=${encodeURIComponent(certificationCode)}`;
+}
 
 /** Printed on every page, and half of why {@link SYSTEM_DOCUMENT_FOOTER} matches. */
 function footerLine(kind: "receipt" | "statement"): string {
-  return `Computer-generated ${kind} issued by the hostel. Not a proof-of-payment upload.`;
+  return kind === "receipt"
+    ? "Computer-generated receipt. Not a proof-of-payment upload."
+    : "Computer-generated statement issued by the hostel. Not a proof-of-payment upload.";
 }
 
 /** What kind of document the marker was found in. */
@@ -110,6 +109,11 @@ function stampSystemDocument(pdf: PDFDocumentType, kind: SystemDocumentKind) {
 export type ReceiptPdfInput = {
   amount: number;
   /**
+   * Set only on a Resident Offer Program receipt: reference quoted, payment
+   * verified. It is what turns the stamp green and what `/verify-receipt` looks up.
+   */
+  certificationCode?: string | null;
+  /**
    * What the money buys, as dates rather than a month string.
    *
    * `2026-08` is unambiguous to us and not to a landlord, a visa officer or a
@@ -126,20 +130,6 @@ export type ReceiptPdfInput = {
   invoicePeriod?: string | null;
   issuedAt: Date;
   method?: string | null;
-  /**
-   * True while the money is credited on a human's judgement alone (item E.7).
-   *
-   * **Provisional credit, printed as such — the way a card network does it.** A
-   * warden approves a screenshot and the resident is paid up that instant, which
-   * is right: statements lag by days and holding an honest resident hostage to
-   * that lag is a worse product than the fraud it guards against. But the
-   * document handed over says the hostel *received* the money, and until the
-   * hostel's own account statement carries the credit, nobody has established
-   * that. One line is the difference between a receipt that overstates what is
-   * known and one that does not, and it costs the honest resident nothing —
-   * their receipt stops hedging as soon as the statement lands.
-   */
-  provisional?: boolean;
   receiptNumber: string;
   referenceCode?: string | null;
   residentName: string;
@@ -178,37 +168,46 @@ function formatLongDate(date: Date): string {
   return `${String(date.getUTCDate()).padStart(2, "0")} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
 }
 
+type Page = ReturnType<PDFDocumentType["addPage"]>;
+type Font = Awaited<ReturnType<PDFDocumentType["embedFont"]>>;
+
+const BRAND_GREEN = rgb(0.04, 0.54, 0.29); // #0a8a4b — the wordmark only
 /**
- * The certification stamp (target §4.4).
- *
- * A drawn mark rather than an image: an embedded PNG would have to be a build
- * asset, and the point of the stamp is that it is *ours* — a resident's own
- * screenshot of a bank app can carry any logo, but nothing outside this function
- * draws this box with this receipt number in it.
- *
- * It is also the most legible part of the document to a person holding a printout
- * and asking whether it is genuine, which is the question the whole receipt
- * exists to answer.
+ * Every word on a receipt is pure black. A receipt is printed on office
+ * printers, photographed and faxed; grey text is the first thing to vanish.
  */
-function drawCertificationStamp(
-  page: ReturnType<PDFDocumentType["addPage"]>,
-  fonts: { bold: Awaited<ReturnType<PDFDocumentType["embedFont"]>>; regular: Awaited<ReturnType<PDFDocumentType["embedFont"]>> },
-  receiptNumber: string,
+const INK = rgb(0, 0, 0);
+/** The stamp's green, darker than the brand so it survives a cheap printer. */
+const STAMP_GREEN = rgb(0.01, 0.36, 0.18);
+
+/**
+ * The stamp (target §4.4) — the most legible part of the page to someone holding
+ * a printout and asking whether it is genuine.
+ *
+ * Drawn rather than an embedded image, so nothing outside this function draws
+ * this box with this receipt's number in it. Two forms:
+ *
+ * - **Certified** — green, `RESIDENT OFFER PROGRAM`, and the certification code:
+ *   the payment quoted its reference and was verified, and anyone can check the
+ *   code at `/verify-receipt`.
+ * - **Paid** — ink, no programme line: money received without its reference
+ *   (cash, a transfer with no code), so it is receipted but not certified.
+ */
+function drawStamp(
+  page: Page,
+  fonts: { bold: Font; regular: Font },
+  input: { certificationCode?: string | null; receiptNumber: string },
   y: number,
-  provisional = false,
-) {
-  // Amber rather than green while the credit is provisional. The stamp is the
-  // most legible thing on the page to someone deciding whether the document is
-  // genuine, and a green CERTIFIED over money nothing independent has confirmed
-  // is the one place this renderer could mislead at a glance.
-  const accent = provisional ? rgb(0.6, 0.4, 0.04) : rgb(0.09, 0.42, 0.29);
+): number {
+  const certified = Boolean(input.certificationCode);
+  const accent = certified ? STAMP_GREEN : INK;
   const width = 236;
-  const height = 76;
+  const height = certified ? 90 : 76;
   const x = 595.28 - 56 - width;
 
   page.drawRectangle({
     borderColor: accent,
-    borderWidth: 1.6,
+    borderWidth: 2,
     color: rgb(0.96, 0.98, 0.97),
     height,
     width,
@@ -216,29 +215,44 @@ function drawCertificationStamp(
     y: y - height,
   });
 
-  page.drawText(provisional ? "PROVISIONAL" : "CERTIFIED", {
+  page.drawText(certified ? "CERTIFIED" : "PAID", {
     color: accent,
     font: fonts.bold,
-    size: 15,
+    size: 17,
     x: x + 16,
     y: y - 26,
   });
-  page.drawText(sanitize(OFFER_PROGRAM_TITLE.toUpperCase()), {
-    color: accent,
-    font: fonts.bold,
-    size: 10,
-    x: x + 16,
-    y: y - 44,
-  });
+  page.drawText(
+    certified
+      ? sanitize(OFFER_PROGRAM_TITLE.toUpperCase())
+      : `RECEIPTED BY ${PLATFORM_NAME.toUpperCase()}`,
+    { color: INK, font: fonts.bold, size: 11, x: x + 16, y: y - 44 },
+  );
+
   // The number is inside the stamp as well as in the table above it. A stamp
   // that does not name the document it certifies certifies every document.
-  page.drawText(sanitize(receiptNumber), {
-    color: rgb(0, 0, 0),
+  let line = y - 62;
+
+  if (input.certificationCode) {
+    page.drawText(sanitize(input.certificationCode), {
+      color: INK,
+      font: fonts.bold,
+      size: 12,
+      x: x + 16,
+      y: line,
+    });
+    line -= 16;
+  }
+
+  page.drawText(sanitize(input.receiptNumber), {
+    color: INK,
     font: fonts.regular,
-    size: 8,
+    size: 10,
     x: x + 16,
-    y: y - 62,
+    y: line,
   });
+
+  return height;
 }
 
 /**
@@ -257,8 +271,8 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const ink = rgb(0.1, 0.12, 0.11);
-  const muted = rgb(0, 0, 0);
+  const ink = INK;
+  const muted = INK;
   const margin = 56;
   let cursor = 785;
 
@@ -275,13 +289,30 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     });
   };
 
-  write(input.hostelName, { bold: true, size: 18 });
-  cursor -= 22;
-  write("Payment receipt", { color: muted, size: 12 });
-  cursor -= 34;
+  // HostelPalika issues the document; the hostel is who was paid. The wordmark
+  // is two-tone, as everywhere else the platform names itself.
+  page.drawText(PLATFORM_NAME_PARTS.head, { color: ink, font: bold, size: 20, x: margin, y: cursor });
+  page.drawText(PLATFORM_NAME_PARTS.tail, {
+    color: BRAND_GREEN,
+    font: bold,
+    size: 20,
+    x: margin + bold.widthOfTextAtSize(PLATFORM_NAME_PARTS.head, 20),
+    y: cursor,
+  });
+  const title = "PAYMENT RECEIPT";
+  page.drawText(title, {
+    color: muted,
+    font: bold,
+    size: 10,
+    x: 595.28 - margin - bold.widthOfTextAtSize(title, 10),
+    y: cursor + 4,
+  });
+  cursor -= 20;
+  write(`Issued on behalf of ${input.hostelName}`, { color: muted, size: 12 });
+  cursor -= 30;
 
   page.drawLine({
-    color: rgb(0.85, 0.87, 0.86),
+    color: rgb(0.55, 0.55, 0.55),
     end: { x: 595.28 - margin, y: cursor },
     start: { x: margin, y: cursor },
     thickness: 1,
@@ -292,6 +323,7 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     ["Receipt number", input.receiptNumber],
     ["Issued", formatDate(input.issuedAt)],
     ["Resident", input.residentName],
+    ["Paid to", input.hostelName],
     ["Amount", formatNPR(input.amount)],
   ];
 
@@ -314,27 +346,21 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
     rows.push(["Method", input.method]);
   }
 
+  if (input.certificationCode && !input.voidedAt) {
+    rows.push(["Verification code", input.certificationCode]);
+  }
+
   for (const [label, value] of rows) {
-    write(label, { color: muted });
+    write(label, { color: muted, size: 12 });
+    // Values bold, labels regular — the reader's eye goes to the facts.
     page.drawText(sanitize(value), {
       color: ink,
-      font: label === "Amount" ? bold : regular,
-      size: label === "Amount" ? 13 : 11,
+      font: bold,
+      size: label === "Amount" ? 15 : 12,
       x: margin + 150,
       y: cursor,
     });
-    cursor -= 22;
-  }
-
-  // Under the table and above the stamp, so a reader who takes in only the
-  // certified box and the amount cannot miss it. Not printed on a voided
-  // receipt: "void" already answers the question this line qualifies.
-  if (input.provisional && !input.voidedAt) {
-    cursor -= 8;
-    write("Provisional", { bold: true, color: rgb(0.72, 0.45, 0.05), size: 12 });
-    cursor -= 16;
-    write(SUBJECT_TO_CONFIRMATION, { color: muted, size: 9 });
-    cursor -= 6;
+    cursor -= 24;
   }
 
   // A voided receipt still renders — a resident holding one is exactly who needs
@@ -355,16 +381,34 @@ export async function renderReceiptPdf(input: ReceiptPdfInput): Promise<Uint8Arr
   // stamp at all — certifying a document that has been withdrawn is the single
   // most misleading thing this renderer could do.
   if (!input.voidedAt) {
-    drawCertificationStamp(
-      page,
-      { bold, regular },
-      input.receiptNumber,
-      cursor - 24,
-      input.provisional,
-    );
+    const top = cursor - 24;
+    const height = drawStamp(page, { bold, regular }, input, top);
+
+    // The QR sits beside the stamp and opens the verify page on any phone
+    // camera — the check a landlord will actually do.
+    if (input.certificationCode) {
+      const { toBuffer } = await import("qrcode");
+      const qr = await pdf.embedPng(
+        await toBuffer(receiptVerifyUrl(input.certificationCode), { margin: 0, width: 240 }),
+      );
+
+      page.drawImage(qr, { height, width: height, x: margin, y: top - height });
+      cursor = top - height - 22;
+      write("Scan the code, or check this receipt at", { color: muted, size: 10 });
+      cursor -= 14;
+      write(`${PLATFORM_SITE_URL.replace(/^https?:\/\//, "")}/verify-receipt`, {
+        bold: true,
+        size: 10,
+      });
+    }
   }
 
-  write(footerLine("receipt"), { color: muted, size: 9, y: 56 });
+  write(`Issued by ${PLATFORM_NAME} on behalf of ${input.hostelName}.`, {
+    color: muted,
+    size: 10,
+    y: 70,
+  });
+  write(footerLine("receipt"), { color: muted, size: 10, y: 56 });
 
   stampSystemDocument(pdf, "RECEIPT");
 

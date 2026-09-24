@@ -51,20 +51,20 @@ export function payoutAccountChangedEmail(input: {
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `The account ${PLATFORM_NAME} sends <strong>${escapeHtml(input.hostelName)}</strong>'s booking payouts to was set on ${escapeHtml(input.changedAt)}.`,
+          `The account where ${PLATFORM_NAME} sends <strong>${escapeHtml(input.hostelName)}</strong>'s booking money was changed on ${escapeHtml(input.changedAt)}.`,
         ),
         accountRows(input.account),
-        paragraph("We check every new payout account before sending money to it."),
+        paragraph("We check every new account before we send money to it."),
         ctaButton(input.settingsUrl, "View payout account"),
         smallPrint(
           input.supportEmail
-            ? `Did not make this change? Reply to this email or write to ${escapeHtml(input.supportEmail)} straight away.`
-            : "Did not make this change? Reply to this email straight away.",
+            ? `Not you? Reply to this email or write to ${escapeHtml(input.supportEmail)} now.`
+            : "Not you? Reply to this email now.",
         ),
       ].join(""),
       eyebrow: "Security",
       heading: "Payout account changed",
-      preheader: `Payouts for ${input.hostelName} will go to ${input.account.methodLabel} ${input.account.maskedNumber} once checked.`,
+      preheader: `After we check it, money for ${input.hostelName} will go to ${input.account.methodLabel} ${input.account.maskedNumber}.`,
     }),
   };
 }
@@ -81,25 +81,25 @@ export function payoutAccountReviewedEmail(input: {
   return {
     category: "billing",
     subject: input.approved
-      ? `Payout account verified for ${input.hostelName}`
-      : `Payout account needs fixing for ${input.hostelName}`,
+      ? `Your payout account is OK — ${input.hostelName}`
+      : `Please fix your payout account — ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
         paragraph(
           input.approved
-            ? `We checked <strong>${escapeHtml(input.hostelName)}</strong>'s payout account. Booking payouts will be sent here.`
-            : `We could not verify <strong>${escapeHtml(input.hostelName)}</strong>'s payout account, so payouts are on hold.`,
+            ? `We checked <strong>${escapeHtml(input.hostelName)}</strong>'s payout account. We will send booking money here.`
+            : `We could not check <strong>${escapeHtml(input.hostelName)}</strong>'s payout account. We will not send money until it is fixed.`,
         ),
         accountRows(input.account),
         input.note ? paragraph(`<strong>Note:</strong> ${escapeHtml(input.note)}`) : "",
         ctaButton(input.settingsUrl, input.approved ? "View payout account" : "Fix payout account"),
       ].join(""),
-      eyebrow: input.approved ? "Verified" : "Action needed",
-      heading: input.approved ? "Payout account verified" : "Payout account needs fixing",
+      eyebrow: input.approved ? "Checked" : "Please fix",
+      heading: input.approved ? "Your payout account is OK" : "Please fix your payout account",
       preheader: input.approved
         ? `Booking payouts for ${input.hostelName} will go to ${input.account.maskedNumber}.`
-        : `Payouts for ${input.hostelName} are on hold until the account is fixed.`,
+        : `Money for ${input.hostelName} is stopped until the account is fixed.`,
       urgent: !input.approved,
     }),
   };

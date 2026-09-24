@@ -1,5 +1,6 @@
 import type { Types } from "mongoose";
 
+import { categoryForRole, PROVIDER_ROLES } from "@/lib/maintenance-role-suggest";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getHostelName, resolveHostelStaffUserIds } from "@/modules/residents/resident-notify";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
@@ -34,6 +35,7 @@ type RequestLike = {
   category: string;
   hostelId: Types.ObjectId;
   location?: string;
+  minimumCharge?: number;
   priority: string;
   status: string;
   title: string;
@@ -123,6 +125,59 @@ export async function notifyProviderOfAssignment(
 }
 
 /**
+ * A new unassigned job, told to every approved provider in that trade.
+ *
+ * Every provider can see the job on their board; only the ones whose trade
+ * matches get a push, so a painter is not woken for a leak.
+ *
+ * ponytail: one row per provider across the whole platform — add an area/city
+ * filter here when providers outside the hostel's city start complaining.
+ */
+async function notifyProvidersOfOpenJob(request: RequestLike) {
+  try {
+    const roles = PROVIDER_ROLES.filter((role) => categoryForRole(role) === request.category);
+    const providers = await ServiceProviderModel.find({
+      $or: [{ categories: { $in: roles } }, { category: { $in: roles } }],
+      isDeleted: false,
+      status: "APPROVED",
+      userId: { $exists: true },
+    })
+      .select({ userId: 1 })
+      .lean<{ userId: Types.ObjectId }[]>();
+
+    if (providers.length === 0) {
+      return;
+    }
+
+    const hostelName = await getHostelName(request.hostelId);
+    const fee =
+      request.minimumCharge === undefined
+        ? ""
+        : ` Minimum fee NPR ${request.minimumCharge.toLocaleString("en-US")}.`;
+
+    await Promise.all(
+      [...new Set(providers.map((provider) => provider.userId.toString()))].map((userId) =>
+        createInAppNotification({
+          actionUrl: "/jobs",
+          body: `${hostelName}: ${request.title}${whereClause(request)}.${fee} Open the app to accept it.`,
+          category: "MAINTENANCE",
+          data: {
+            maintenanceRequestId: request._id.toString(),
+            priority: request.priority,
+          },
+          hostelId: request.hostelId.toString(),
+          priority: request.priority === "URGENT" ? "URGENT" : "HIGH",
+          title: `New ${readableCategory(request.category)} job`,
+          userId,
+        }),
+      ),
+    );
+  } catch {
+    // Best effort; the job is on the board either way.
+  }
+}
+
+/**
  * A request raised, told to the rest of the desk.
  *
  * The person who raised it is excluded — they are looking at the confirmation
@@ -156,12 +211,17 @@ export async function notifyStaffOfNewMaintenanceRequest(
       ),
     );
 
-    // A request raised with somebody already on it is an assignment too.
-    if (request.providerId) {
-      await notifyProviderOfAssignment(request);
-    }
   } catch {
     // Best effort; the queue holds the row either way.
+  }
+
+  // A request raised with somebody already on it is an assignment too;
+  // otherwise it goes on the open board and the matching trade is told.
+  // Outside the try above: a failed staff fan-out must not stop the dispatch.
+  if (request.providerId) {
+    await notifyProviderOfAssignment(request);
+  } else {
+    await notifyProvidersOfOpenJob(request);
   }
 }
 

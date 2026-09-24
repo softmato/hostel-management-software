@@ -55,11 +55,11 @@ export function existingResidentAddedEmail(input: {
   const money =
     total === 0
       ? paragraph(
-          `Your rent is all clear till <strong>${escapeHtml(input.paidTill)}</strong>. Nothing to pay now. Your next bill is for <strong>${escapeHtml(input.nextBillMonth)}</strong>.`,
+          `Your rent is paid till <strong>${escapeHtml(input.paidTill)}</strong>. Nothing to pay now. Your next bill is for <strong>${escapeHtml(input.nextBillMonth)}</strong>.`,
         )
       : [
           paragraph(
-            `You have <strong>${rupees(total)}</strong> due. Please pay by <strong>${escapeHtml(input.payBy)}</strong>.`,
+            `Please pay <strong>${rupees(total)}</strong> by <strong>${escapeHtml(input.payBy)}</strong>.`,
           ),
           `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 16px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;">${input.dues
             .map(
@@ -72,23 +72,23 @@ export function existingResidentAddedEmail(input: {
             )
             .join("")}</table>`,
           paragraph(
-            "Mention the code when you pay, so the hostel can match your payment to the right bill.",
+            "Write the code when you pay, so the hostel knows which bill you paid.",
           ),
         ].join("\n");
 
   const access = input.hasAccount
     ? [
         paragraph(
-          `Sign in to ${PLATFORM_NAME} with this email and press <strong>Continue</strong> to see your dashboard.`,
+          `Log in to ${PLATFORM_NAME} with this email and tap <strong>Continue</strong>.`,
         ),
         ctaButton(input.dashboardUrl, "Open my account"),
       ]
     : input.activation
       ? [
           paragraph(
-            `Set up your ${PLATFORM_NAME} account to see your bills, pay rent, get notices and more. This link works till ${escapeHtml(input.activation.expiresOn)}.`,
+            `Start your ${PLATFORM_NAME} account to see bills, pay rent, get notices and more. This link works till ${escapeHtml(input.activation.expiresOn)}.`,
           ),
-          ctaButton(input.activation.url, "Set up my account"),
+          ctaButton(input.activation.url, "Start my account"),
         ]
       : [paragraph("Ask the hostel for your activation code to use the app.")];
 
@@ -96,23 +96,23 @@ export function existingResidentAddedEmail(input: {
     category: "info",
     subject:
       total === 0
-        ? `Congratulations! ${input.hostelName} is now on ${PLATFORM_NAME}`
-        : `${input.hostelName} is now on ${PLATFORM_NAME} — ${rupees(total)} due`,
+        ? `Good news! ${input.hostelName} is now on ${PLATFORM_NAME}`
+        : `${input.hostelName} is now on ${PLATFORM_NAME} — please pay ${rupees(total)}`,
     html: emailLayout({
       heading: `Your hostel is now on ${PLATFORM_NAME}`,
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, congratulations — <strong>${escapeHtml(input.hostelName)}</strong> now uses ${PLATFORM_NAME}. This is what the hostel has for you.`,
+          `Hi ${escapeHtml(input.residentName)}, good news! <strong>${escapeHtml(input.hostelName)}</strong> now uses ${PLATFORM_NAME}. Here are your details.`,
         ),
         `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
           .map((fact) => `<li>${fact}</li>`)
           .join("")}</ul>`,
         money,
         paragraph(
-          `From now on, pay your rent or submit your payment in the ${PLATFORM_NAME} app or on the web, and you get a certified receipt for it. Every payment made with its code also keeps you in the <a href="${escapeHtml(input.offerProgramUrl)}" style="color:#0f766e;">Resident Offer Program</a>, where gifts for residents are coming — given out at random.`,
+          `Now you can pay rent in the ${PLATFORM_NAME} app or website and get a receipt. Every payment with its code also puts you in the <a href="${escapeHtml(input.offerProgramUrl)}" style="color:#0f766e;">Resident Offer Program</a>. Gifts are coming for lucky residents.`,
         ),
         paragraph(
-          "You can also see your bills, notices, meals and complaints any time — in the app or on the web.",
+          "You can also see your bills, notices, meals and complaints any time.",
         ),
         ...access,
         paragraph("If anything here is wrong, tell the hostel."),

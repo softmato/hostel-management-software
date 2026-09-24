@@ -26,7 +26,7 @@ export function storeOrderReceivedPlatformEmail(input: {
     category: "alert",
     subject: `New order · ${input.hostelName} · ${formatNpr(input.total)} · ${input.orderNumber}`,
     html: emailLayout({
-      heading: "New supply order to fulfil",
+      heading: "New order to deliver",
       urgent: true,
       bodyHtml: [
         paragraph(
@@ -45,7 +45,7 @@ export function storeOrderReceivedPlatformEmail(input: {
         paragraph(
           `Delivery address: ${escapeHtml(input.address)}<br/>Contact: ${escapeHtml(input.contactName)} · <a href="tel:${escapeHtml(input.phone)}">${escapeHtml(input.phone)}</a>${input.note ? `<br/>Courier note: ${escapeHtml(input.note)}` : ""}`,
         ),
-        ctaButton(input.ordersUrl, "Open the fulfilment queue"),
+        ctaButton(input.ordersUrl, "Open orders"),
       ].join("\n"),
     }),
   };

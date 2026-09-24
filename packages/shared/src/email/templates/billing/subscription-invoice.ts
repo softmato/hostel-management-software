@@ -47,34 +47,34 @@ export function subscriptionInvoiceEmail(input: {
 }): EmailContent {
   return {
     category: "billing",
-    subject: `Invoice ${input.invoiceNumber} — ${input.planName} for ${input.hostelName}`,
+    subject: `Your hostel plan bill — ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.ownerName),
         paragraph(
-          `Here is your invoice for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>.`,
+          `Here is your bill for <strong>${escapeHtml(input.planName)}</strong> (<strong>${escapeHtml(input.hostelName)}</strong>).`,
         ),
         detailsTable([
           { emphasis: true, label: "Amount", value: formatRupees(input.amount) },
           { label: "Plan", value: `${input.planName} · ${input.cycleLabel}` },
-          { label: "Invoice", value: input.invoiceNumber },
-          { label: "Due date", value: input.dueAt ?? "" },
+          { label: "Bill no.", value: input.invoiceNumber },
+          { label: "Pay by", value: input.dueAt ?? "" },
         ]),
         ctaButton(input.action.url, input.action.label),
         input.goesLiveOnPayment
-          ? smallPrint("Your listing goes live as soon as this is paid.")
+          ? smallPrint("Your hostel shows online after you pay.")
           : "",
         input.attached
-          ? smallPrint("The invoice is attached to this email as a PDF.")
+          ? smallPrint("The bill (PDF) is attached.")
           : input.documentUrl
-            ? smallPrint(`${textLink(input.documentUrl, "Download the invoice")} as a PDF.`)
+            ? smallPrint(`${textLink(input.documentUrl, "Download the bill")} (PDF).`)
             : "",
       ]
         .filter(Boolean)
         .join("\n"),
-      eyebrow: "Invoice",
-      heading: "Your plan invoice",
-      preheader: `${formatRupees(input.amount)} for ${input.planName}${input.dueAt ? `, due ${input.dueAt}` : ""}.`,
+      eyebrow: "Bill",
+      heading: "Your plan bill",
+      preheader: `${formatRupees(input.amount)} for ${input.planName}${input.dueAt ? `, pay by ${input.dueAt}` : ""}.`,
     }),
   };
 }

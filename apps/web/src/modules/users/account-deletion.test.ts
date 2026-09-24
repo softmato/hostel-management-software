@@ -348,7 +348,7 @@ describe("account deletion — cancelling", () => {
 
     expect(result.request.cancelled).toBe(true);
     expect(mocks.userFindOneAndUpdate.mock.calls[0][1].$set.status).toBe("ACTIVE");
-    expect(mocks.sendNotificationEmail.mock.calls[0][0].subject).toContain("reactivated");
+    expect(mocks.sendNotificationEmail.mock.calls[0][0].subject).toContain("back on");
   });
 
   it("cancels on the deletion clock rather than on the request kind", async () => {

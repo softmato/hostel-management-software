@@ -7,17 +7,17 @@ export function hostelPublishedEmail(input: {
 }): EmailContent {
   return {
     category: "info",
-    subject: `Your hostel is now live — ${input.hostelName}`,
+    subject: `Your hostel is now online — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your listing is live 🎉",
+      heading: "Your hostel is online 🎉",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> is now published on ${PLATFORM_NAME} and visible to students searching for a place to stay.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> is now on ${PLATFORM_NAME}. Students looking for a hostel can see it.`,
         ),
         paragraph(
-          "Keep your photos, pricing and vacancy details up to date from your dashboard — listings with current information get more inquiries.",
+          "Keep your photos, prices and free beds up to date. Then more people will contact you.",
         ),
-        ctaButton(input.listingUrl, "View your listing"),
+        ctaButton(input.listingUrl, "See your hostel"),
       ].join("\n"),
     }),
   };

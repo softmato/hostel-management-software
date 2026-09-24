@@ -84,15 +84,15 @@ describe("certified receipts", () => {
       id: "july",
       month: "2026-07",
       receipts: [
-        { amount: 6_000, id: "r1", issuedAt: "2026-07-04T00:00:00.000Z", number: "R-1" },
-        { amount: 6_000, id: "r2", issuedAt: "2026-07-19T00:00:00.000Z", number: "R-2" },
+        { amount: 6_000, certificationCode: null, id: "r1", issuedAt: "2026-07-04T00:00:00.000Z", number: "R-1" },
+        { amount: 6_000, certificationCode: null, id: "r2", issuedAt: "2026-07-19T00:00:00.000Z", number: "R-2" },
       ],
     }),
     invoice({
       id: "august",
       month: "2026-08",
       receipts: [
-        { amount: 12_000, id: "r3", issuedAt: "2026-08-02T00:00:00.000Z", number: "R-3" },
+        { amount: 12_000, certificationCode: null, id: "r3", issuedAt: "2026-08-02T00:00:00.000Z", number: "R-3" },
       ],
     }),
   ];
@@ -125,8 +125,8 @@ describe("certified receipts", () => {
     const rows = certifiedReceipts([
       invoice({
         receipts: [
-          { amount: 1, id: "undated", issuedAt: null, number: "R-0" },
-          { amount: 1, id: "dated", issuedAt: "2026-08-02T00:00:00.000Z", number: "R-9" },
+          { amount: 1, certificationCode: null, id: "undated", issuedAt: null, number: "R-0" },
+          { amount: 1, certificationCode: null, id: "dated", issuedAt: "2026-08-02T00:00:00.000Z", number: "R-9" },
         ],
       }),
     ]);
@@ -139,7 +139,7 @@ describe("certified receipts", () => {
     const rows = certifiedReceipts([
       invoice({
         month: null,
-        receipts: [{ amount: 5_000, id: "adm", issuedAt: null, number: "R-ADM" }],
+        receipts: [{ amount: 5_000, certificationCode: null, id: "adm", issuedAt: null, number: "R-ADM" }],
       }),
     ]);
 
@@ -161,8 +161,8 @@ describe("the summary figures", () => {
           invoice({
             paidAmount: 11_200,
             receipts: [
-              { amount: 6_000, id: "r1", issuedAt: null, number: "R-1" },
-              { amount: 4_000, id: "r2", issuedAt: null, number: "R-2" },
+              { amount: 6_000, certificationCode: null, id: "r1", issuedAt: null, number: "R-1" },
+              { amount: 4_000, certificationCode: null, id: "r2", issuedAt: null, number: "R-2" },
             ],
           }),
         ],

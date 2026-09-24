@@ -28,21 +28,21 @@ function wording(stage: ReminderStage) {
   switch (stage) {
     case "TODAY":
       return {
-        heading: "Your hostel fee is due today",
-        lead: "is due today",
-        subject: "Rent due today",
+        heading: "Please pay your hostel fee today",
+        lead: "must be paid today",
+        subject: "Please pay your hostel fee today",
       };
     case "SOON":
       return {
-        heading: "Your hostel fee is due in three days",
-        lead: "is due in three days",
-        subject: "Rent due in 3 days",
+        heading: "Please pay your hostel fee in 3 days",
+        lead: "must be paid in 3 days",
+        subject: "Please pay your hostel fee in 3 days",
       };
     default:
       return {
-        heading: "Your hostel fee is due soon",
-        lead: "is coming up",
-        subject: "Payment due soon",
+        heading: "Please pay your hostel fee soon",
+        lead: "must be paid soon",
+        subject: "Please pay your hostel fee soon",
       };
   }
 }
@@ -71,12 +71,12 @@ export function paymentDueReminderEmail(input: {
           `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(monthName(input.month))}</strong> fee at ${escapeHtml(input.hostelName)} ${words.lead}.`,
         ),
         paragraph(
-          `Amount due: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Due date: <strong>${escapeHtml(emailDate(input.dueDate) ?? "")}</strong>`,
+          `To pay: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Pay by: <strong>${escapeHtml(emailDate(input.dueDate) ?? "")}</strong>`,
         ),
         paragraph(
-          "Pay through your usual method, then upload the payment proof so your hostel admin can verify it.",
+          "Pay the way you always do. Then send a photo of the payment so the hostel can check it.",
         ),
-        ctaButton(input.paymentsUrl, "Upload payment proof"),
+        ctaButton(input.paymentsUrl, "Send payment photo"),
       ].join("\n"),
     }),
   };

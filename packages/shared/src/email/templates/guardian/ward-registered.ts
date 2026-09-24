@@ -45,12 +45,12 @@ export function wardRegisteredEmail(input: {
 
   return {
     category: "info",
-    subject: `${input.residentName} is now a resident of ${input.hostelName}`,
+    subject: `${input.residentName} now stays at ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your ward has been registered",
+      heading: "Your child is added to the hostel",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.guardianName)}, <strong>${escapeHtml(input.hostelName)}</strong> has registered <strong>${escapeHtml(input.residentName)}</strong> as a resident and listed you as their ${escapeHtml(
+          `Hi ${escapeHtml(input.guardianName)}, <strong>${escapeHtml(input.hostelName)}</strong> added <strong>${escapeHtml(input.residentName)}</strong> as a resident and added you as their ${escapeHtml(
             input.relation?.toLowerCase() || "guardian",
           )}.`,
         ),
@@ -58,7 +58,7 @@ export function wardRegisteredEmail(input: {
           .map((fact) => `<li>${fact}</li>`)
           .join("")}</ul>`,
         paragraph(
-          "You are the contact the hostel will reach in an emergency. If any of this is wrong, or you should not be listed here, tell the hostel.",
+          "The hostel will call you in an emergency. If anything here is wrong, tell the hostel.",
         ),
       ].join("\n"),
     }),

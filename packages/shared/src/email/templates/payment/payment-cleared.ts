@@ -41,7 +41,7 @@ export function paymentClearedEmail(input: {
     `Resident: <strong>${escapeHtml(input.residentName)}</strong>`,
     `Amount: <strong>${money(input.amount)}</strong>`,
     `Method: <strong>${escapeHtml(input.method.replaceAll("_", " "))}</strong>`,
-    `Period: <strong>${escapeHtml(monthName(input.month)) || "—"}</strong>`,
+    `Month: <strong>${escapeHtml(monthName(input.month)) || "—"}</strong>`,
     input.receiptNumber
       ? `Receipt: <strong>${escapeHtml(input.receiptNumber)}</strong>`
       : "",
@@ -50,21 +50,21 @@ export function paymentClearedEmail(input: {
 
   return {
     category: "billing",
-    subject: `Payment cleared — ${escapeHtml(input.residentName)} · ${monthName(input.month)}`,
+    subject: `Payment received — ${escapeHtml(input.residentName)} · ${monthName(input.month)}`,
     html: emailLayout({
-      heading: "Payment cleared ✅",
+      heading: "Payment received ✅",
       bodyHtml: [
         paragraph(
-          `A payment at ${escapeHtml(input.hostelName)} has been verified and the resident's balance updated.`,
+          `A payment at ${escapeHtml(input.hostelName)} is checked. The resident's balance is updated.`,
         ),
         `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
           .map((fact) => `<li>${fact}</li>`)
           .join("")}</ul>`,
         input.remainingAmount > 0
           ? paragraph(
-              `<strong>${money(input.remainingAmount)}</strong> is still outstanding for this period.`,
+              `<strong>${money(input.remainingAmount)}</strong> is still left to pay for this month.`,
             )
-          : paragraph("This period is now fully settled."),
+          : paragraph("This month is fully paid."),
         ctaButton(input.paymentsUrl, "Open payments"),
       ].join("\n"),
     }),

@@ -92,6 +92,8 @@ export function toPortalInvoice(invoice: LedgerInvoice): PortalInvoice {
 /** One receipt on a resident's month, as their screen lists it. */
 export type ResidentInvoiceReceipt = {
   amount: number;
+  /** Set when the receipt is certified under the Resident Offer Program. */
+  certificationCode: string | null;
   id: string;
   issuedAt: string | null;
   number: string;
@@ -248,12 +250,13 @@ export async function getResidentFinanceView(
         residentId: resident._id,
         voidedAt: null,
       })
-        .select("amount invoiceId issuedAt receiptNumber")
+        .select("amount certificationCode invoiceId issuedAt receiptNumber")
         .sort({ issuedAt: -1 })
         .lean<
           {
             _id: Types.ObjectId;
             amount: number;
+            certificationCode?: string | null;
             invoiceId?: Types.ObjectId | null;
             issuedAt?: Date | null;
             receiptNumber: string;
@@ -274,6 +277,7 @@ export async function getResidentFinanceView(
 
     list.push({
       amount: receipt.amount,
+      certificationCode: receipt.certificationCode ?? null,
       id: receipt._id.toString(),
       issuedAt: receipt.issuedAt?.toISOString() ?? null,
       number: receipt.receiptNumber,

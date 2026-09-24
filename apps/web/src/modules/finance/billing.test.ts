@@ -60,6 +60,14 @@ vi.mock("@hostel/db/models/Invoice", () => ({
   },
 }));
 
+vi.mock("@hostel/db/models/OfferAward", () => ({
+  OfferAwardModel: { distinct: vi.fn(async () => []) },
+}));
+
+vi.mock("@/modules/offer-program/offer-program.service", () => ({
+  applyPendingFeeOffsQuietly: vi.fn(),
+}));
+
 vi.mock("@hostel/db/models/PaymentEvent", () => ({
   PaymentEventModel: { countDocuments: mocks.eventCount },
 }));

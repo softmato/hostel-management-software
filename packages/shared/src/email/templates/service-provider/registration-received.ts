@@ -8,16 +8,16 @@ export function serviceProviderRegistrationReceivedEmail(input: {
 }): EmailContent {
   return {
     category: "info",
-    subject: "We received your service provider registration",
+    subject: "We got your details",
     html: emailLayout({
-      heading: "Registration received",
+      heading: "We got your details",
       bodyHtml: [
         paragraph(`Hi ${escapeHtml(input.fullName)},`),
         paragraph(
-          `Thanks for registering as a <strong>${escapeHtml(input.category)}</strong> on ${PLATFORM_NAME}. Our team will review your details and documents shortly.`,
+          `Thank you for joining as <strong>${escapeHtml(input.category)}</strong> on ${PLATFORM_NAME}. We will check your details and documents soon.`,
         ),
         paragraph(
-          "You will get another email once your listing is approved and hostels can find you.",
+          "We will email you when you are approved.",
         ),
       ].join("\n"),
     }),

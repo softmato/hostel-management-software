@@ -72,6 +72,7 @@ import { ProvidedItemModel } from "@hostel/db/models/ProvidedItem";
 import { QRActivationModel } from "@hostel/db/models/QRActivation";
 import { QuestionCallClickModel } from "@hostel/db/models/QuestionCallClick";
 import { RatingReviewModel } from "@hostel/db/models/RatingReview";
+import { OfferAwardModel } from "@hostel/db/models/OfferAward";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ReceiptCounterModel } from "@hostel/db/models/ReceiptCounter";
 import { ReconciliationRunModel } from "@hostel/db/models/ReconciliationRun";
@@ -202,6 +203,7 @@ const ERASED_BY_HOSTEL_ID: Array<{ model: PurgeableModel; name: string }> = (
     ["NoticePush", NoticePushModel],
     ["Notification", NotificationModel],
     ["NotificationCampaign", NotificationCampaignModel],
+    ["OfferAward", OfferAwardModel],
     ["PaymentEvent", PaymentEventModel],
     ["PaymentIntent", PaymentIntentModel],
     ["ProvidedItem", ProvidedItemModel],

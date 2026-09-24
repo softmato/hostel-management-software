@@ -25,25 +25,25 @@ export function platformAdminInvitationEmail(input: {
 
   return {
     category: "security",
-    subject: `${input.roleLabel} access — accept your invitation`,
+    subject: `You are invited as ${input.roleLabel}`,
     html: emailLayout({
-      heading: "You have been invited to the platform team",
+      heading: "You are invited to our team",
       siteName: input.siteName,
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.invitedByName)}</strong> has invited you to join the platform team as a <strong>${escapeHtml(input.roleLabel)}</strong>.`,
+          `<strong>${escapeHtml(input.invitedByName)}</strong> invited you to join the team as <strong>${escapeHtml(input.roleLabel)}</strong>.`,
         ),
         paragraph(
           isSuperadmin
-            ? "A superadmin can see and change everything on the platform — every hostel, every payment, the public website, and who else holds admin access."
-            : "A platform moderator handles approvals, verification and moderation, and can read the reports. They cannot reach website configuration, fee plans, settings or the admin roster.",
+            ? "A superadmin can see and change everything: all hostels, all payments, the website, and who is admin."
+            : "A moderator approves and checks hostels and can read reports. They cannot change the website, plans, settings or admins.",
         ),
         paragraph(
-          "Opening the link below is what grants the access — it was sent only to this address, so opening it is how we know the mailbox is yours. There is nothing to fill in and no password to set: confirm on the page it opens, then sign in with Google using this same address.",
+          "Tap the button below to accept. No form and no password. Confirm on the page, then log in with Google using this email.",
         ),
-        ctaButton(input.acceptUrl, "Accept the invitation"),
+        ctaButton(input.acceptUrl, "Accept"),
         paragraph(
-          `<span style="color:#64748b;font-size:13px;">The link works once and expires in ${input.expiresInDays} day(s). If you were not expecting this, ignore it — nothing changes until the link is opened, and you can ask the sender to withdraw it.</span>`,
+          `<span style="color:#64748b;font-size:13px;">This link works one time, for ${input.expiresInDays} day(s). Not expecting this? Ignore it. Nothing changes unless you open the link.</span>`,
         ),
       ].join("\n"),
     }),

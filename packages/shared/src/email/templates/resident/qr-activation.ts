@@ -21,20 +21,20 @@ export function residentQrActivationEmail(input: {
 
   return {
     category: "security",
-    subject: `Activate your ${PLATFORM_NAME} account — ${input.hostelName}`,
+    subject: `Start your ${PLATFORM_NAME} account — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Activate your resident account",
+      heading: "Start your account",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has set up your resident account on ${PLATFORM_NAME}.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> made your account on ${PLATFORM_NAME}.`,
         ),
         qrBlock,
         paragraph(
-          `If you cannot scan the code, enter this activation code instead:<br/><strong style="font-size:22px;letter-spacing:3px;">${escapeHtml(input.code)}</strong>`,
+          `Cannot scan? Type this code:<br/><strong style="font-size:22px;letter-spacing:3px;">${escapeHtml(input.code)}</strong>`,
         ),
-        ctaButton(input.activationUrl, "Activate my account"),
+        ctaButton(input.activationUrl, "Start my account"),
         paragraph(
-          `This code expires on <strong>${escapeHtml(expiry)}</strong>. Ask your hostel admin for a new one if it lapses.`,
+          `This code works till <strong>${escapeHtml(expiry)}</strong>. After that, ask your hostel for a new one.`,
         ),
       ].join("\n"),
     }),

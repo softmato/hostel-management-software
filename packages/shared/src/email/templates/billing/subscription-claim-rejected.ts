@@ -43,25 +43,25 @@ export function subscriptionClaimRejectedEmail(input: {
 
   return {
     category: "billing",
-    subject: `We could not confirm your payment for ${input.planName}`,
+    subject: `We could not find your payment — ${input.hostelName}`,
     html: emailLayout({
-      heading: "We could not confirm this payment",
+      heading: "We could not find your payment",
       bodyHtml: [
         paragraph(greeting),
         paragraph(
-          `We checked the proof you sent for <strong>${formatRupees(input.amount)}</strong> against <strong>${escapeHtml(input.invoiceNumber)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>, and we were not able to match it to a payment on our side.`,
+          `We checked your payment photo for <strong>${formatRupees(input.amount)}</strong> (bill <strong>${escapeHtml(input.invoiceNumber)}</strong>, <strong>${escapeHtml(input.hostelName)}</strong>). We did not get this money.`,
         ),
         input.reason
-          ? paragraph(`Our team noted: <strong>${escapeHtml(input.reason)}</strong>`)
+          ? paragraph(`Reason: <strong>${escapeHtml(input.reason)}</strong>`)
           : "",
         paragraph(
-          `Nothing has been taken off your invoice, so <strong>${formatRupees(input.outstanding)}</strong> is still outstanding on <strong>${escapeHtml(input.planName)}</strong>.`,
+          `You still need to pay <strong>${formatRupees(input.outstanding)}</strong> for <strong>${escapeHtml(input.planName)}</strong>.`,
         ),
         paragraph(
-          "If the money did leave your account, send us the proof again from the app — a clear screenshot showing the amount, the date and the transaction reference is usually all it takes. Bank transfers can also take a day to appear on our side, so a fresh attempt tomorrow often clears on its own.",
+          "If you did pay, send a clear screenshot again. It must show the amount, the date and the transaction ID. Bank payments can take one day to reach us, so you can also try again tomorrow.",
         ),
         paragraph(
-          "Your listing has not been changed. Reply to this email if you would rather we sorted it out with you directly.",
+          "Nothing else has changed. Need help? Reply to this email.",
         ),
       ]
         .filter(Boolean)

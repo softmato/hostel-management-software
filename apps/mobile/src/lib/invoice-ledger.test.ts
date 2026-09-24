@@ -55,8 +55,8 @@ describe("invoiceLedger", () => {
       invoice({
         paidAmount: 8500,
         receipts: [
-          { amount: 6500, id: "r2", issuedAt: "2026-08-20T04:00:00.000Z", number: "R-02" },
-          { amount: 2000, id: "r1", issuedAt: "2026-08-05T04:00:00.000Z", number: "R-01" },
+          { amount: 6500, certificationCode: null, id: "r2", issuedAt: "2026-08-20T04:00:00.000Z", number: "R-02" },
+          { amount: 2000, certificationCode: null, id: "r1", issuedAt: "2026-08-05T04:00:00.000Z", number: "R-01" },
         ],
         status: "PAID",
       }),
@@ -79,7 +79,7 @@ describe("invoiceLedger", () => {
       invoice({
         paidAmount: 8500,
         receipts: [
-          { amount: 2000, id: "r1", issuedAt: "2026-08-05T04:00:00.000Z", number: "R-01" },
+          { amount: 2000, certificationCode: null, id: "r1", issuedAt: "2026-08-05T04:00:00.000Z", number: "R-01" },
         ],
         status: "PAID",
       }),
@@ -97,7 +97,7 @@ describe("invoiceLedger", () => {
       invoice({
         dueAmount: 1200.3,
         paidAmount: 0.1 + 0.2,
-        receipts: [{ amount: 0.3, id: "r1", issuedAt: null, number: "R-01" }],
+        receipts: [{ amount: 0.3, certificationCode: null, id: "r1", issuedAt: null, number: "R-01" }],
       }),
     );
 
@@ -110,7 +110,7 @@ describe("invoiceLedger", () => {
     const lines = invoiceLedger(
       invoice({
         paidAmount: 1000,
-        receipts: [{ amount: 3000, id: "r1", issuedAt: null, number: "R-01" }],
+        receipts: [{ amount: 3000, certificationCode: null, id: "r1", issuedAt: null, number: "R-01" }],
       }),
     );
 

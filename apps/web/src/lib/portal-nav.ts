@@ -12,6 +12,7 @@ export type PortalIconName =
   | "bell"
   | "building"
   | "calendar"
+  | "camera"
   | "card"
   | "chart"
   | "clipboard"
@@ -294,6 +295,14 @@ export const PLATFORM_NAV: PortalNavGroup[] = [
         href: "/platform/store",
         icon: "tag",
         label: "Supply Store",
+      },
+      {
+        description:
+          "Certified residents each quarter, the perk catalogue, and the offers given — fee off or a gift from HostelPalika.",
+        href: "/platform/offer-program",
+        icon: "sparkles",
+        keywords: ["offer", "program", "perks", "rewards", "gift", "fee off", "certified", "quarter"],
+        label: "Offer Program",
       },
     ],
     label: "Finance",
@@ -889,12 +898,31 @@ export const GUARDIAN_NAV: PortalNavGroup[] = [
     label: "Safety",
   },
   {
+    items: [{ href: "/guardian/notifications", icon: "bell", label: "Notifications" }],
+    label: "Account",
+  },
+];
+
+/** The cook app's tabs, on the web. Community sits in the shell header. */
+export const COOK_NAV: PortalNavGroup[] = [
+  {
     items: [
-      { href: "/guardian/notifications", icon: "bell", label: "Notifications" },
-      { href: "/guardian/messages", icon: "message", label: "Messages" },
-      { href: "/guardian/help", icon: "help", label: "Help & Support" },
+      { href: "/cook", icon: "food", keywords: ["food ready", "announce", "meal"], label: "Today" },
+      { href: "/cook/menu", icon: "calendar", keywords: ["week", "routine"], label: "Menu" },
+      { href: "/cook/photos", icon: "camera", keywords: ["upload", "picture"], label: "Photos" },
+      { href: "/cook/notifications", icon: "bell", label: "Notifications" },
     ],
-    label: "Support",
+  },
+];
+
+/** The provider app's tabs, on the web. */
+export const PROVIDER_NAV: PortalNavGroup[] = [
+  {
+    items: [
+      { href: "/jobs", icon: "wrench", keywords: ["work", "maintenance"], label: "Jobs" },
+      { href: "/jobs/card", icon: "card", keywords: ["profile", "application", "id"], label: "My card" },
+      { href: "/jobs/notifications", icon: "bell", label: "Notifications" },
+    ],
   },
 ];
 
@@ -993,6 +1021,7 @@ const SUPERADMIN_ONLY_PREFIXES = [
   "/platform/account-deletions",
   "/platform/bookings",
   "/platform/config",
+  "/platform/offer-program",
   "/platform/push",
   "/platform/settings",
 ];
@@ -1030,6 +1059,8 @@ export const PLATFORM_MODERATOR_SEARCH_ENTRIES =
 export const HOSTEL_ADMIN_SEARCH_ENTRIES = searchEntriesFromNav(HOSTEL_ADMIN_NAV);
 export const RESIDENT_SEARCH_ENTRIES = searchEntriesFromNav(RESIDENT_NAV);
 export const GUARDIAN_SEARCH_ENTRIES = searchEntriesFromNav(GUARDIAN_NAV);
+export const COOK_SEARCH_ENTRIES = searchEntriesFromNav(COOK_NAV);
+export const PROVIDER_SEARCH_ENTRIES = searchEntriesFromNav(PROVIDER_NAV);
 
 /* -------------------------------------------------------------------------- */
 /* Tenant-scoped hostel admin URLs                                            */

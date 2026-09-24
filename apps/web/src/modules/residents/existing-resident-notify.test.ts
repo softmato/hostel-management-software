@@ -92,9 +92,9 @@ describe("telling existing residents", () => {
     const email = sentEmail();
 
     expect(email.to).toBe("ram@example.com");
-    expect(email.subject).toBe("Congratulations! Education Light is now on HostelPalika");
-    expect(email.html).toContain("all clear till <strong>Aswin 2083</strong>");
-    expect(email.html).toContain("certified receipt");
+    expect(email.subject).toBe("Good news! Education Light is now on HostelPalika");
+    expect(email.html).toContain("paid till <strong>Aswin 2083</strong>");
+    expect(email.html).toContain("get a receipt");
     expect(email.html).toContain("next bill is for <strong>Kartik 2083</strong>");
     expect(email.html).toContain("resident-activation?code=AB12CD34");
     // No account, so nothing to push to.
@@ -116,8 +116,8 @@ describe("telling existing residents", () => {
 
     const email = sentEmail();
 
-    expect(email.subject).toBe("Education Light is now on HostelPalika — Rs 26,500 due");
-    expect(email.html).toContain("Please pay by <strong>Aswin 31, 2083 BS</strong>");
+    expect(email.subject).toBe("Education Light is now on HostelPalika — please pay Rs 26,500");
+    expect(email.html).toContain(" by <strong>Aswin 31, 2083 BS</strong>");
 
     const order = ["Bhadra 2083 rent", "Aswin 2083 rent", "Old dues"].map((label) => email.html.indexOf(label));
 

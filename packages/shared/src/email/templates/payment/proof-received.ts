@@ -39,25 +39,25 @@ export function paymentProofReceivedEmail(input: {
 
   return {
     category: "billing",
-    subject: `Payment proof received — ${monthName(input.month)} · ${input.hostelName}`,
+    subject: `We got your payment photo — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
-      heading: "We have your payment proof",
+      heading: "We got your payment photo",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, we received your payment proof of <strong>${amount}</strong> for <strong>${escapeHtml(monthName(input.month))}</strong> and sent it to ${escapeHtml(input.hostelName)} to check.`,
+          `Hi ${escapeHtml(input.residentName)}, we got your payment photo of <strong>${amount}</strong> for <strong>${escapeHtml(monthName(input.month))}</strong>. We sent it to ${escapeHtml(input.hostelName)} to check.`,
         ),
         paragraph(
-          "Nothing has been credited to your account yet — that happens once your hostel verifies it, and we will email you a receipt the moment they do.",
+          "It is not added to your account yet. When the hostel checks it, we will email you a receipt.",
         ),
         // Named, not explained. The programme's own page carries the detail; an
         // email that tries to carry it too is a second copy of the wording to
         // keep in step, and this one is read in ten seconds on a phone.
         input.referenceCode
           ? paragraph(
-              `This payment will be credited to your <strong>Resident Offer Program</strong> under reference <strong>${escapeHtml(input.referenceCode)}</strong>.`,
+              `This payment will count in your <strong>Resident Offer Program</strong> with code <strong>${escapeHtml(input.referenceCode)}</strong>.`,
             )
           : paragraph(
-              "This payment will be credited to your <strong>Resident Offer Program</strong> once it is verified.",
+              "This payment will count in your <strong>Resident Offer Program</strong> after it is checked.",
             ),
         paragraph(
           `<a href="${escapeHtml(input.offerProgramUrl)}">Read more about the Resident Offer Program</a>`,

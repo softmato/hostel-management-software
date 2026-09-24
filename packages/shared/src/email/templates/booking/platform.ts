@@ -14,16 +14,16 @@ export function hostelBookingsPausedEmail(input: {
 }): EmailContent {
   return {
     category: "alert",
-    subject: `Bookings paused automatically — ${input.hostelName}`,
+    subject: `Bookings stopped — ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         paragraph(
-          `${escapeHtml(input.hostelName)} missed or cancelled ${input.strikes} bookings in ${input.windowDays} days. Its Book button is off until a superadmin turns it back on.`,
+          `${escapeHtml(input.hostelName)} missed or cancelled ${input.strikes} bookings in ${input.windowDays} days. Its Book button is off until a superadmin turns it on.`,
         ),
         ctaButton(input.reviewUrl, "Review hostel"),
       ].join(""),
       eyebrow: "Bookings",
-      heading: "Hostel bookings paused",
+      heading: "Hostel bookings stopped",
       preheader: `${input.hostelName}: ${input.strikes} strikes in ${input.windowDays} days.`,
     }),
   };
@@ -90,14 +90,14 @@ export function bookingProofToCheckEmail(input: {
     subject: `Booking payment to check — ${rupees(input.amount)} (${input.code})`,
     html: emailLayout({
       bodyHtml: [
-        paragraph("A booking fee screenshot is waiting. Check it against the collection account."),
+        paragraph("A booking fee screenshot is waiting. Check it with our bank account."),
         detailsTable([
           { label: "Booking", value: input.code },
           { label: "Guest", value: input.guestName },
           { label: "Hostel", value: input.hostelName },
           { emphasis: true, label: "Amount", value: rupees(input.amount) },
           { label: "Their reference", value: input.reference ?? "" },
-          { label: "Promised by", value: input.checkBy },
+          { label: "Check by", value: input.checkBy },
         ]),
         ctaButton(input.queueUrl, "Check payment"),
       ].join(""),

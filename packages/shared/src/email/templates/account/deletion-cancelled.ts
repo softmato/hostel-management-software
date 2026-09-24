@@ -14,20 +14,20 @@ export function accountDeletionCancelledEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: "Your account has been reactivated",
+    subject: "Your account is back on",
     html: emailLayout({
       heading: "Your account is active again",
       bodyHtml: [
         paragraph(
-          `${input.userName ? `${escapeHtml(input.userName)}, the` : "The"} deletion request on your ${PLATFORM_NAME} account has been cancelled. You can sign in again straight away.`,
+          `${input.userName ? `${escapeHtml(input.userName)}, we` : "We"} stopped the delete request for your ${PLATFORM_NAME} account. You can log in now.`,
         ),
         paragraph(
-          "Nothing was deleted. Your profile, history and settings are exactly as you left them.",
+          "Nothing was deleted. Everything is the same as before.",
         ),
         paragraph(
-          "If it was not you who cancelled this, change your password immediately and contact your hostel.",
+          "Not you? Change your password now and tell your hostel.",
         ),
-        ctaButton(input.loginUrl, "Sign in"),
+        ctaButton(input.loginUrl, "Log in"),
       ].join("\n"),
     }),
   };

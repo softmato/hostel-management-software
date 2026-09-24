@@ -157,7 +157,8 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
           body: [
             "Every invoice you receive carries its own reference code — something like RUP-4821-K.",
             "Quote that code when you pay, and your payment is matched to the right month automatically, usually within minutes instead of waiting on a manual check.",
-            "Verified payments are receipted under the programme, with a certified receipt you can download or forward at any time.",
+            "When your hostel verifies a payment that quoted its code, {siteName} issues a certified receipt — stamped for the Resident Offer Program, with a verification code anyone can check.",
+            "Every quarter (three Nepali months), {siteName} gives offers to residents with certified receipts.",
           ],
           icon: "sparkles",
           title: "What the Resident Offer Program is",
@@ -176,7 +177,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
           body: [
             "Copy the reference code from your invoice or from the Fees & Payments page in your resident portal.",
             "Paste it into the remarks, purpose or notes field when you make the transfer or wallet payment.",
-            "If your bank strips that field or does not offer one, pay as normal — your rent still counts. Quoting the code speeds up matching; it is never a condition of payment.",
+            "If your bank strips that field or does not offer one, pay as normal — your rent still counts. Only payments that quote the code are certified in the programme.",
           ],
           icon: "badge-check",
           title: "What you need to do",
@@ -185,20 +186,38 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
           body: [
             "Upload your payment screenshot in the resident portal. We email you straight away to confirm we have it.",
             "Nothing is credited to your account until your hostel verifies the payment — a submitted proof is not yet a settled payment.",
-            "Once it is verified, we email you a certified receipt as a PDF and keep a copy in your portal to download any time.",
+            "Once it is verified, we email you the receipt as a PDF and keep a copy in the app and your portal. If your payment quoted its code, the receipt is added to the Resident Offer Program automatically.",
           ],
           icon: "receipt",
           title: "What happens after you pay",
         },
         {
           body: [
+            "At the end of each quarter — Baisakh to Asar, Shrawan to Aswin, Kartik to Poush, Magh to Chaitra — {siteName} looks at who holds certified receipts for that quarter.",
+            "Residents chosen get either part or all of their next monthly fee paid by {siteName} to their hostel, or a gift from {siteName}.",
+            "A fee offer is taken off your next monthly bill by itself. For a gift, our team contacts you.",
+            "The perks on offer are listed under Offer Program in the app and your resident portal. Paying every bill with its code is what counts.",
+          ],
+          icon: "gift",
+          title: "Quarterly offers",
+        },
+        {
+          body: [
             "A receipt number unique to that one payment — no two receipts ever share it, even for the same month.",
             "The amount paid, the date it was issued, and the exact dates the payment covers.",
-            "The invoice reference code it was matched against, and a Resident Offer Program certification stamp.",
+            "The invoice reference code it was matched against, and — for a certified receipt — the Resident Offer Program stamp, a verification code and a QR code.",
             "If a receipt is ever corrected, the original is marked VOID and a replacement is issued with its own number. Both stay readable.",
           ],
           icon: "file-text",
           title: "What is on your receipt",
+        },
+        {
+          body: [
+            "Anyone holding a certified receipt — a landlord, a parent, a bank — can scan its QR code or enter its verification code on the Verify a receipt page (/verify-receipt).",
+            "The page shows the amount, the hostel, the month and the resident's first name as {siteName} recorded them. If they differ from the paper, the paper is not genuine.",
+          ],
+          icon: "qr-code",
+          title: "Checking a receipt",
         },
         {
           body: [
@@ -211,7 +230,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
           title: "Why a receipt cannot be used as payment proof",
         },
       ],
-      subtitle: "How your rent payments are matched, verified and receipted",
+      subtitle: "Pay with your code, get certified receipts, and get quarterly offers",
     },
     privacy: {
       highlights: [],

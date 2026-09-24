@@ -13,23 +13,23 @@ export function cookPortalEnabledEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: `Cook portal access — ${input.hostelName}`,
+    subject: `Cook login is ready — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Cook portal is ready",
+      heading: "Cook login is ready",
       bodyHtml: [
         paragraph(
-          `The dedicated cook portal for <strong>${escapeHtml(input.hostelName)}</strong> is enabled for <strong>${escapeHtml(input.cookName)}</strong>.`,
+          `<strong>${escapeHtml(input.cookName)}</strong> can now log in as cook for <strong>${escapeHtml(input.hostelName)}</strong>.`,
         ),
         paragraph(
-          "Hand these credentials to your cook. The portal is designed for phones — meals can be announced to residents with one tap.",
+          "Give this login to your cook. It works on phones. They can tell residents about meals with one tap.",
         ),
         paragraph(
-          `Login: <strong>${escapeHtml(input.credentials.email)}</strong><br/>First-time password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
+          `Login: <strong>${escapeHtml(input.credentials.email)}</strong><br/>Password: <strong>${escapeHtml(input.credentials.temporaryPassword)}</strong>`,
         ),
         paragraph(
-          "The first cook to sign in will be asked to choose a new password — that becomes the kitchen's shared password, and any other cook signs in with it too. Rotating from your Food page issues a fresh first-time password and retires the old one.",
+          "The first cook to log in sets a new password. All cooks use that same password. You can make a new password from your Food page.",
         ),
-        ctaButton(input.loginUrl, `Open ${PLATFORM_NAME} login`),
+        ctaButton(input.loginUrl, "Log in"),
       ].join("\n"),
     }),
   };

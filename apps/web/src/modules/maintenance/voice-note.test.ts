@@ -33,7 +33,10 @@ vi.mock("@hostel/db/models/FileAsset", () => ({
 }));
 
 vi.mock("@hostel/db/models/HostelSettings", () => ({
-  HostelSettingsModel: { findOne: vi.fn(), updateOne: vi.fn() },
+  HostelSettingsModel: {
+    findOne: () => ({ select: () => ({ lean: async () => null }) }),
+    updateOne: vi.fn(),
+  },
 }));
 
 vi.mock("@hostel/db/models/MaintenanceComment", () => ({

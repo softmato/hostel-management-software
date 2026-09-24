@@ -43,40 +43,40 @@ export function subscriptionReceiptEmail(input: {
   return {
     category: "billing",
     subject: settled
-      ? `${formatRupees(input.amount)} received — your ${input.planName} plan is active`
-      : `${formatRupees(input.amount)} received — ${formatRupees(input.outstanding)} still due`,
+      ? `Thank you! We got your ${formatRupees(input.amount)} payment`
+      : `We got ${formatRupees(input.amount)}. ${formatRupees(input.outstanding)} left to pay`,
     html: emailLayout({
       bodyHtml: [
         paragraph(
-          `We have received your payment for <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>.`,
+          `We got your payment for <strong>${escapeHtml(input.planName)}</strong> (<strong>${escapeHtml(input.hostelName)}</strong>).`,
         ),
         detailsTable([
-          { emphasis: true, label: "Amount received", value: formatRupees(input.amount) },
-          { label: "Paid by", value: methodLabel },
-          { label: "Invoice", value: input.invoiceNumber },
+          { emphasis: true, label: "Paid", value: formatRupees(input.amount) },
+          { label: "Paid with", value: methodLabel },
+          { label: "Bill no.", value: input.invoiceNumber },
           ...(settled
             ? []
             : [
-                { label: "Balance due", value: formatRupees(input.outstanding) },
-                { label: "Due date", value: input.dueBy ?? "" },
+                { label: "Left to pay", value: formatRupees(input.outstanding) },
+                { label: "Pay by", value: input.dueBy ?? "" },
               ]),
         ]),
         paragraph(
           settled
-            ? "That settles the invoice in full. Your plan is active and your listing is live."
-            : "Your listing stays live while you pay the balance.",
+            ? "Your bill is fully paid. Your plan is on and your hostel shows online."
+            : "Your hostel stays online while you pay the rest.",
         ),
         smallPrint(
           input.attached
-            ? "Your receipt and invoice are attached to this email."
+            ? "Your receipt and bill are attached."
             : "You can download your receipt from your billing page.",
         ),
       ].join("\n"),
       eyebrow: "Payment received",
-      heading: settled ? "Payment received" : "Part payment received",
+      heading: settled ? "Thank you, we got your payment" : "We got part of your payment",
       preheader: settled
-        ? `${formatRupees(input.amount)} received for ${input.planName}.`
-        : `${formatRupees(input.amount)} received. ${formatRupees(input.outstanding)} is still due.`,
+        ? `We got ${formatRupees(input.amount)} for ${input.planName}.`
+        : `We got ${formatRupees(input.amount)}. ${formatRupees(input.outstanding)} left to pay.`,
     }),
   };
 }

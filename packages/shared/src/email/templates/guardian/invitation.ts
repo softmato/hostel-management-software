@@ -18,26 +18,26 @@ export function guardianInvitationEmail(input: {
           .map((permission) => `<li>${escapeHtml(permission)}</li>`)
           .join("")}</ul>`
       : paragraph(
-          "They have not shared any details yet — you will see the hostel's contact information only.",
+          "They have not shared anything yet. You will only see the hostel's contact details.",
         );
 
   return {
     category: "info",
     subject: `${input.residentName} added you as their guardian — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Guardian invitation",
+      heading: "You are invited as guardian",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.residentName)}</strong> has invited you as their guardian at <strong>${escapeHtml(input.hostelName)}</strong>.`,
+          `<strong>${escapeHtml(input.residentName)}</strong> added you as their guardian at <strong>${escapeHtml(input.hostelName)}</strong>.`,
         ),
-        paragraph("They chose to share:"),
+        paragraph("You can see:"),
         permissionList,
         paragraph(
-          "You will only ever see the items above. The resident can change or withdraw this at any time.",
+          "You will only see the things above. The resident can change this any time.",
         ),
-        ctaButton(input.acceptUrl, "Accept the invitation"),
+        ctaButton(input.acceptUrl, "Accept"),
         paragraph(
-          `<span style="color:#64748b;font-size:13px;">This invitation expires in ${input.expiresInDays} days.</span>`,
+          `<span style="color:#64748b;font-size:13px;">This link works for ${input.expiresInDays} days.</span>`,
         ),
       ].join("\n"),
     }),

@@ -205,6 +205,7 @@ describe("the resident's view", () => {
     expect(view.invoices[0]!.receipts).toEqual([
       {
         amount: 12000,
+        certificationCode: null,
         id: receiptId.toString(),
         issuedAt: null,
         number: "RCP-EDU-2026-08-00001",

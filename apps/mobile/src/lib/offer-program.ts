@@ -40,6 +40,8 @@ export function activeCodes(invoices: ResidentInvoice[]): ResidentInvoice[] {
 
 export type CertifiedReceipt = {
   amount: number;
+  /** Set when certified under the Resident Offer Program. */
+  certificationCode: string | null;
   id: string;
   issuedAt: string | null;
   /** `YYYY-MM`, or `null` for an invoice belonging to no month. */

@@ -166,7 +166,7 @@ describe("hostel approval issues cook credentials", () => {
 
     expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
     expect(html).toContain("public-temp-pw");
-    expect(html).toContain("Your hostel portal opens as soon as the payment is complete.");
+    expect(html).toContain("Your hostel app opens after you pay.");
     expect(html).not.toContain("cook-secret-pw");
   });
 
@@ -188,14 +188,14 @@ describe("hostel approval issues cook credentials", () => {
     expect(email.to).toBe("owner@example.com");
     expect(email.html).toContain("cook@sunrise-hostel.hostelpalika.local");
     expect(email.html).toContain("cook-secret-pw");
-    expect(email.html).toContain("Cook portal access");
+    expect(email.html).toContain("Cook login");
   });
 
   it("warns the owner that the cook login is shared and limited", async () => {
     await approvePlatformHostel(hostelId, platformPrincipal);
 
     const email = mocks.sendEmail.mock.calls[0][0];
-    expect(email.html).toContain("shared kitchen login");
+    expect(email.html).toContain("kitchen login");
     expect(email.html).toContain("cannot see payments");
   });
 
@@ -203,8 +203,8 @@ describe("hostel approval issues cook credentials", () => {
     await approvePlatformHostel(hostelId, platformPrincipal);
 
     const email = mocks.sendEmail.mock.calls[0][0];
-    expect(email.html).toContain("First-time password");
-    expect(email.html).toContain("becomes the kitchen's shared password");
+    expect(email.html).toContain("All cooks use that same password");
+    expect(email.html).toContain("The first cook to log in sets a new password");
   });
 
   it("still approves when cook provisioning fails", async () => {
@@ -214,6 +214,6 @@ describe("hostel approval issues cook credentials", () => {
 
     expect(result.hostel.status).toBe("APPROVED");
     expect(mocks.sendEmail).toHaveBeenCalled();
-    expect(mocks.sendEmail.mock.calls[0][0].html).not.toContain("Cook portal access");
+    expect(mocks.sendEmail.mock.calls[0][0].html).not.toContain("Cook login");
   });
 });

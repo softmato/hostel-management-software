@@ -53,7 +53,13 @@ export async function connectToDatabase() {
   cached.promise ??= mongoose
     .connect(uri, { bufferCommands: false, maxPoolSize: 5, maxIdleTimeMS: 30_000 })
     .then((connection) => {
-      attachDatabasePool(connection.connection.getClient());
+      // An optimisation, so it must never be the reason a connect fails: a
+      // throw here used to reject a connection that had already succeeded.
+      try {
+        attachDatabasePool(connection.connection.getClient());
+      } catch (error) {
+        console.warn("attachDatabasePool failed; keeping the connection", error);
+      }
       return connection;
     })
     .catch((error: unknown) => {

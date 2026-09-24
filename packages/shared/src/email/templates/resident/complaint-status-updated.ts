@@ -3,8 +3,8 @@ import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from
 const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: "in progress",
   PENDING: "pending",
-  REJECTED: "closed without action",
-  RESOLVED: "resolved",
+  REJECTED: "closed",
+  RESOLVED: "fixed",
 };
 
 export function complaintStatusUpdatedEmail(input: {
@@ -20,7 +20,7 @@ export function complaintStatusUpdatedEmail(input: {
     category: "support",
     subject: `Your complaint is now ${label} — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Complaint update",
+      heading: "Your complaint is updated",
       bodyHtml: [
         paragraph(
           `<strong>${escapeHtml(input.hostelName)}</strong> updated your complaint <strong>${escapeHtml(input.title)}</strong>.`,
@@ -29,7 +29,7 @@ export function complaintStatusUpdatedEmail(input: {
         input.response
           ? paragraph(`Note from the hostel: “${escapeHtml(input.response)}”`)
           : "",
-        ctaButton(input.complaintsUrl, "View the complaint"),
+        ctaButton(input.complaintsUrl, "See complaint"),
       ]
         .filter(Boolean)
         .join("\n"),

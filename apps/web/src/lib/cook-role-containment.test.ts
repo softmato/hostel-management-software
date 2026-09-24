@@ -30,9 +30,10 @@ describe("COOK role containment", () => {
     expect(() => assertAllowedRole(cook, [Role.GUARDIAN])).toThrow();
   });
 
-  it("has no portal to land in and no allowed redirect prefixes", () => {
-    // A cook signing in on the web gets the public site, not a dashboard.
-    expect(roleLandingPath[Role.COOK]).toBe("/");
-    expect(roleAllowedNextPrefixes[Role.COOK]).toBeUndefined();
+  it("lands in the Cook Portal and can be redirected nowhere else", () => {
+    // The kitchen's own portal (`app/(cook)/cook`) — and only it. A `?next=`
+    // pointing at staff, platform or resident pages must never be honoured.
+    expect(roleLandingPath[Role.COOK]).toBe("/cook");
+    expect(roleAllowedNextPrefixes[Role.COOK]).toEqual(["/cook"]);
   });
 });

@@ -17,24 +17,24 @@ export function otpCodeEmail(input: {
   const brand = input.siteName?.trim();
   const expiry =
     input.expiresInMinutes && input.expiresInMinutes > 0
-      ? `This code expires in ${Math.round(input.expiresInMinutes)} minutes.`
-      : "This code expires shortly.";
+      ? `This code works for ${Math.round(input.expiresInMinutes)} minutes.`
+      : "This code works for a short time only.";
 
   return {
     category: "security",
-    subject: brand ? `Your ${brand} verification code` : "Your verification code",
+    subject: brand ? `Your ${brand} code` : "Your code",
     html: emailLayout({
-      heading: "Verification code",
+      heading: "Your code",
       ...(brand ? { siteName: brand } : {}),
       bodyHtml: [
         paragraph(
-          "Use this one-time code to verify your email and finish creating your account.",
+          "Enter this code to finish making your account.",
         ),
         `<div style="margin:28px 0;text-align:center;">
           <span style="display:inline-block;border:1px dashed #14b8a6;border-radius:12px;background:#f0fdfa;padding:14px 24px;font-size:30px;font-weight:800;letter-spacing:8px;color:#0f766e;">${escapeHtml(input.code)}</span>
         </div>`,
         paragraph(
-          `${escapeHtml(expiry)} If you did not request it, you can ignore this email.`,
+          `${escapeHtml(expiry)} Did not ask for it? Ignore this email.`,
         ),
       ].join("\n"),
     }),

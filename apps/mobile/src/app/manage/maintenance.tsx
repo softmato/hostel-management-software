@@ -85,12 +85,13 @@ import { formatDuration } from "@/lib/voice-note";
  * fills the rest in, visibly, as suggestions the admin can override. The
  * scoring is `lib/maintenance-suggest.ts`, a copy of the web's own rules.
  *
- * ## The provider is chosen once, at creation
+ * ## Raised requests go to the provider board
  *
- * `maintenanceStatusUpdateSchema` has no `providerId`, so there is no reassign
- * route to build a screen for: a request that went to the wrong person is
- * cancelled with a note and raised again. Worth knowing before looking for the
- * button that is not here.
+ * Nobody is picked on the sheet. A raised request lands on every provider's job
+ * board; the ones in that trade get a push, and the first to accept takes it
+ * (owner's call, 2026-09-24). The request sheet can still assign somebody by
+ * hand while nobody has accepted. There is no reassign: a request that went to
+ * the wrong person is cancelled with a note and raised again.
  *
  * ## The list already carries the thread
  *
@@ -371,8 +372,8 @@ export default function ManageMaintenanceScreen() {
       toastSuccess(
         "Request raised",
         voiceNote
-          ? "Your voice note went with it. It is in the queue and on the Today tab."
-          : "It is in the queue and on the Today tab.",
+          ? "Your voice note went with it. Providers in that trade have been notified."
+          : "Providers in that trade have been notified.",
       );
       setConfirming(false);
       setRaising(false);
@@ -922,9 +923,9 @@ export default function ManageMaintenanceScreen() {
       {/*
         The owner's side of the confirm step.
 
-        Eleven boxes, one per trade, and a blank one means "no agreed rate" — the
-        state the confirm sheet renders as *No agreed call-out charge* rather
-        than as free. The list is short and fixed, so it is a plain stack rather
+        Eleven boxes, one per trade, every one filled: the server answers the
+        default (NPR 200) for any trade the hostel has not set, and a box left
+        blank on save goes back to that default. The list is short and fixed, so it is a plain stack rather
         than an add-a-row builder: there is no twelfth trade to invent, and a
         builder would make removing a rate a different gesture from leaving one
         unset when they are the same statement.
@@ -943,9 +944,9 @@ export default function ManageMaintenanceScreen() {
       >
         <View className="gap-3 pb-2">
           <Text variant="caption">
-            The minimum you have agreed with each trade. It is shown before a
-            request is raised, and nowhere else — it never reaches an invoice.
-            Leave a box empty if you have not agreed one.
+            The minimum fee for each trade. It is shown before a request is
+            raised and to the provider who accepts it — it never reaches an
+            invoice. Leave a box empty to use the default of Rs 200.
           </Text>
 
           {MAINTENANCE_CATEGORIES.map((category) => (
@@ -956,7 +957,7 @@ export default function ManageMaintenanceScreen() {
               onChangeText={(value) =>
                 setChargeDraft((prev) => ({ ...prev, [category]: value }))
               }
-              placeholder="Not agreed"
+              placeholder="200"
               value={chargeDraft[category] ?? ""}
             />
           ))}
@@ -1039,8 +1040,8 @@ export default function ManageMaintenanceScreen() {
                   {formatMoney(quotedCharge)}
                 </Text>
                 <Text className="text-center" variant="caption">
-                  The minimum this hostel has agreed for a call-out. The real cost
-                  depends on the job and is recorded when it is known.
+                  The minimum fee for this job. The real cost depends on the work
+                  and is recorded when it is known.
                 </Text>
               </>
             )}
@@ -1059,7 +1060,7 @@ export default function ManageMaintenanceScreen() {
               </View>
             ) : null}
             <Text variant="caption">
-              {`${humanizeEnum(suggestedPriority ?? "MEDIUM")} priority · assign somebody after it is raised`}
+              {`${humanizeEnum(suggestedPriority ?? "MEDIUM")} priority · sent to every ${humanizeEnum(suggestedCategory ?? "OTHER").toLowerCase()} provider, first to accept takes it`}
             </Text>
           </View>
         </View>

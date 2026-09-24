@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   QrCode,
+  Smartphone,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -20,6 +21,7 @@ import { landingPathForRole } from "@/lib/route-access";
 import { Role } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { BrandWordmark } from "@/components/brand-mark";
+import { GetAppDialog } from "@/components/get-app-dialog";
 import {
   ResidentIdentityCenter,
   requestResidentProfileForm,
@@ -151,6 +153,7 @@ export function PublicHeader({ active }: PublicHeaderProps) {
   const setUser = useSessionStore((state) => state.setUser);
   const isSessionChecked = useSessionStore((state) => state.status === "resolved");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [getAppOpen, setGetAppOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -364,6 +367,16 @@ export function PublicHeader({ active }: PublicHeaderProps) {
                         turn browser push on — see PublicPushOptIn. */}
                     <PublicPushOptIn onDone={() => setMenuOpen(false)} />
                     <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setGetAppOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground transition hover:bg-muted"
+                    >
+                      <Smartphone className="size-4" />
+                      Get the app
+                    </button>
+                    <button
                       onClick={handleLogout}
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-600 transition hover:bg-red-50"
                     >
@@ -402,6 +415,8 @@ export function PublicHeader({ active }: PublicHeaderProps) {
           </button>
         </div>
       </div>
+
+      <GetAppDialog comingSoon onOpenChange={setGetAppOpen} open={getAppOpen} />
 
       <Sheet open={navOpen} onOpenChange={setNavOpen}>
         <SheetContent side="right" className="flex w-[280px] flex-col gap-0 p-0 sm:max-w-[280px]">

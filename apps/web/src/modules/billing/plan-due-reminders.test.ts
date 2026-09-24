@@ -198,8 +198,8 @@ describe("sendPlanDueReminders", () => {
 
     const sent = mocks.sendEmail.mock.calls[0]![0];
     expect(sent.to).toBe("sita@example.test");
-    expect(sent.subject).toBe("Payment due tomorrow — Pro Plan · Rupa Hostel");
-    expect(sent.html).toContain("Please pay it on the HostelPalika website");
+    expect(sent.subject).toBe("Please pay your hostel plan fee tomorrow — Rupa Hostel");
+    expect(sent.html).toContain("Pay on the HostelPalika website");
     expect(sent.html).toContain("https://example.test/rupa-hostel/admin/billing");
 
     expect(mocks.sendPush).toHaveBeenCalledTimes(1);
@@ -267,7 +267,7 @@ describe("sendPlanDueReminders", () => {
 
     const html = mocks.sendEmail.mock.calls[0]![0].html as string;
     expect(html).toContain("https://example.test/register-hostel/form");
-    expect(html).toContain("Your listing goes live as soon as this is paid.");
+    expect(html).toContain("Your hostel shows online after you pay.");
   });
 
   it("sends a live hostel that still owes the overdue email every morning", async () => {
@@ -276,7 +276,7 @@ describe("sendPlanDueReminders", () => {
     await sendPlanDueReminders(MORNING);
 
     expect(mocks.sendEmail.mock.calls[0]![0].subject).toBe(
-      "Payment overdue — Pro Plan · Rupa Hostel",
+      "Please pay your hostel plan fee — Rupa Hostel",
     );
     expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment overdue by 12 days");
   });
@@ -295,10 +295,10 @@ describe("the reminder emails", () => {
 
   it("names the day in plain words", () => {
     expect(planDueSoonEmail({ ...base, daysUntilDue: 1, live: true }).subject).toContain(
-      "due tomorrow",
+      "fee tomorrow",
     );
     expect(planDueSoonEmail({ ...base, daysUntilDue: 0, live: true }).subject).toContain(
-      "due today",
+      "fee today",
     );
   });
 

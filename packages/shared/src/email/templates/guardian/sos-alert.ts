@@ -17,25 +17,25 @@ export function sosAlertEmail(input: {
   const time = input.triggeredAt.toISOString().replace("T", " ").slice(0, 16);
   const lead =
     input.recipientKind === "GUARDIAN"
-      ? `<strong>${escapeHtml(input.residentName)}</strong> has raised an emergency SOS at <strong>${escapeHtml(input.hostelName)}</strong>. Hostel staff have been alerted at the same time.`
-      : `<strong>${escapeHtml(input.residentName)}</strong> has raised an emergency SOS at <strong>${escapeHtml(input.hostelName)}</strong>. Respond immediately.`;
+      ? `<strong>${escapeHtml(input.residentName)}</strong> pressed SOS at <strong>${escapeHtml(input.hostelName)}</strong>. They need help. The hostel staff also got this message.`
+      : `<strong>${escapeHtml(input.residentName)}</strong> pressed SOS at <strong>${escapeHtml(input.hostelName)}</strong>. They need help. Please go now.`;
 
   return {
     category: "alert",
-    subject: `URGENT: SOS raised by ${input.residentName} — ${input.hostelName}`,
+    subject: `SOS: ${input.residentName} needs help — ${input.hostelName}`,
     html: emailLayout({
-      heading: "🚨 Emergency SOS",
+      heading: "🚨 SOS — needs help now",
       urgent: true,
       bodyHtml: [
         paragraph(lead),
-        paragraph(`Raised at ${escapeHtml(time)} UTC.`),
+        paragraph(`Time: ${escapeHtml(time)} UTC.`),
         input.residentPhone
           ? paragraph(`Resident phone: <strong>${escapeHtml(input.residentPhone)}</strong>`)
           : "",
         input.message
-          ? paragraph(`Message from the resident: “${escapeHtml(input.message)}”`)
+          ? paragraph(`Message: “${escapeHtml(input.message)}”`)
           : "",
-        ctaButton(input.actionUrl, "Open the alert"),
+        ctaButton(input.actionUrl, "Open SOS"),
       ]
         .filter(Boolean)
         .join("\n"),

@@ -62,7 +62,7 @@ import { toastError } from "@/lib/toast";
  * | **The card** | what I owe in total, whether any of it is late, and what the buttons below are about to pay |
  * | **Two buttons** | pay that amount, or say I already have. The reference code is not here — it is on the pay screen the first one opens |
  * | **Credit** | money of mine the hostel is holding. Absent when there is none |
- * | **Certified receipts** | where my verified receipts are — a door, on the shelf shape More uses |
+ * | **Offer Program** | certified receipts, perks and offers — a door, on the shelf shape More uses |
  * | **Pending claims** | what I have told them, still unverified. Absent when there is none |
  * | **Invoices** | the history, grouped by year, filtered by one exclusive control |
  *
@@ -448,8 +448,8 @@ export default function ResidentPaymentsScreen() {
         <CardRow
           icon="ribbon-outline"
           onPress={() => router.push("/offer-program/mine")}
-          subtitle="View codes, matched payments & receipts"
-          title="Certified receipts"
+          subtitle="Certified receipts, perks & your offers"
+          title="Offer Program"
         />
 
         {openClaims.length > 0 ? (

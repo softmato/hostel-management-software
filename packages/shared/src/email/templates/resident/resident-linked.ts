@@ -17,17 +17,17 @@ export function residentLinkedEmail(input: {
     category: "info",
     subject: `You are now a resident of ${input.hostelName}`,
     html: emailLayout({
-      heading: "Welcome to your resident portal",
+      heading: "Welcome to your hostel",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> has added you as a resident on ${PLATFORM_NAME}.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> added you as a resident on ${PLATFORM_NAME}.`,
         ),
         paragraph(
-          "Nothing to activate and no new password to remember — just sign in the way you always do, with the same email and password or with Google, and you will land straight on your resident dashboard.",
+          "No new password needed. Log in the same way as before (email and password, or Google).",
         ),
         ctaButton(input.dashboardUrl, "Open my dashboard"),
         paragraph(
-          "From there you can see your rent and payments, your meals, notices from the hostel, and raise complaints.",
+          "There you can see rent, payments, meals and notices, and send complaints.",
         ),
       ].join("\n"),
     }),

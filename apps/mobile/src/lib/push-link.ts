@@ -97,6 +97,8 @@ const KNOWN_PATHS = new Set([
    */
   "/night-status",
   "/notifications",
+  /* The resident's Offer Program — certified receipts and offers. */
+  "/offer-program/mine",
   /*
    * Where a refused provider application lands. `notifyServiceProviderDecision`
    * sends it as the `actionUrl` because that screen is the only one that offers
@@ -139,6 +141,8 @@ const REWRITES: { prefix: string; to: string }[] = [
    * The resident's own guardian list, carried by "your guardian accepted".
    */
   { prefix: "/resident/guardians", to: "/guardians" },
+  /* "Payment verified" and "you got an offer" both point here. */
+  { prefix: "/resident/offer-program", to: "/offer-program/mine" },
   /*
    * A guardian being told their access changed. The website sends them to the
    * guardian dashboard; the app's guardian stack opens on the same thing.

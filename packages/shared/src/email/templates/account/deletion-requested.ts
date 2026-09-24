@@ -19,26 +19,26 @@ export function accountDeletionRequestedEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: "Account deletion requested — 60 days to cancel",
+    subject: "Your account will be deleted in 60 days",
     html: emailLayout({
-      heading: "Account deletion requested",
+      heading: "Your account will be deleted",
       bodyHtml: [
         paragraph(
-          `${input.userName ? `${escapeHtml(input.userName)}, we` : "We"} received a request to delete your ${PLATFORM_NAME} account. Your account is now closed and you will not be able to sign in.`,
+          `${input.userName ? `${escapeHtml(input.userName)}, you` : "You"} asked us to delete your ${PLATFORM_NAME} account. Your account is now closed. You cannot log in.`,
         ),
         paragraph(
-          `Nothing is erased yet. Your data is held until <strong>${escapeHtml(input.scheduledDeletionDate)}</strong> — 60 days — and permanently deleted after that.`,
+          `Nothing is deleted yet. We keep your data until <strong>${escapeHtml(input.scheduledDeletionDate)}</strong> (60 days). After that, it is deleted forever.`,
         ),
         paragraph(
-          "What will be deleted: your account and profile, your location and attendance history, your devices, and your consent records. Your community posts stay up but stop being linked to you.",
+          "We will delete: your account, your profile, your location and attendance history, and your devices. Your posts stay, but without your name.",
         ),
         paragraph(
-          "What will be kept: payment and receipt records with your name removed, and audit entries. Hostels are required to keep those for their own accounts.",
+          "We will keep: payment and receipt records, without your name. Hostels must keep these for their accounts.",
         ),
         paragraph(
-          `<strong>If you did not ask for this, or you have changed your mind, cancel before ${escapeHtml(input.scheduledDeletionDate)}.</strong> Cancelling restores the account exactly as it was.`,
+          `<strong>Not you, or changed your mind? Cancel before ${escapeHtml(input.scheduledDeletionDate)}.</strong> Your account will come back as it was.`,
         ),
-        ctaButton(input.cancelUrl, "Cancel deletion and restore my account"),
+        ctaButton(input.cancelUrl, "Keep my account"),
       ].join("\n"),
     }),
   };

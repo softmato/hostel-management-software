@@ -46,6 +46,9 @@ const paymentEventSchema = new Schema(
         "RESIDENT_CLAIM",
         "CASH_ENTRY",
         "ADJUSTMENT",
+        // HostelPalika paying a resident's fee as a Resident Offer Program award.
+        // Real money the platform owes the hostel, never a bank credit to match.
+        "OFFER_PROGRAM",
       ],
       required: true,
     },

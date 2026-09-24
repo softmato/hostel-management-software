@@ -8,6 +8,7 @@ import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { assertWholeRupees, sumAmounts } from "@/modules/finance/money";
 import { notifyPaymentReversed } from "@/modules/finance/finance-notify";
 import { issueReceiptForEvent, voidReceipt } from "@/modules/finance/receipt.service";
+import { qualifiesForOfferProgram } from "@/modules/offer-program/offer-program.rules";
 import type { ReceiptRecord } from "@/modules/finance/receipt.service";
 import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { InvoiceBalanceModel } from "@hostel/db/models/InvoiceBalance";
@@ -59,9 +60,12 @@ export type PaymentEventRecord = {
   idempotencyKey: string;
   invoiceId?: Types.ObjectId | null;
   providerTxnId?: string | null;
+  rawPayload?: { referenceNote?: string | null; transactionCode?: string | null } | null;
+  referenceCode?: string | null;
   residentId?: Types.ObjectId | null;
   reversedByEventId?: Types.ObjectId | null;
   settledAt?: Date | null;
+  source?: string;
   status: EventStatus;
 };
 
@@ -275,6 +279,9 @@ export async function settleEvent(
             invoiceId: event.invoiceId ?? null,
             issuedAt: settledAt,
             residentId: event.residentId,
+            // Reference quoted and independently verified → a certified receipt
+            // in the Resident Offer Program. Decided once, here, for every path.
+            certify: qualifiesForOfferProgram(event),
           },
           options.principal,
         )

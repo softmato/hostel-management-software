@@ -27,7 +27,7 @@ const BASE: EmailIdentity = {
 describe("fromHeaderFor", () => {
   it("sends each category from its own mailbox", () => {
     expect(fromHeaderFor("info", BASE)).toBe("HostelPalika <info@softmato.com>");
-    expect(fromHeaderFor("alert", BASE)).toBe("HostelPalika Alerts <alert@softmato.com>");
+    expect(fromHeaderFor("alert", BASE)).toBe("HostelPalika <alert@softmato.com>");
     expect(fromHeaderFor("billing", BASE)).toBe(
       "HostelPalika Billing <billing@softmato.com>",
     );
@@ -58,7 +58,7 @@ describe("fromHeaderFor", () => {
       mailboxes: { ...BASE.mailboxes, alert: "urgent", billing: "accounts" },
     };
 
-    expect(fromHeaderFor("alert", renamed)).toBe("HostelPalika Alerts <urgent@softmato.com>");
+    expect(fromHeaderFor("alert", renamed)).toBe("HostelPalika <urgent@softmato.com>");
     expect(fromHeaderFor("billing", renamed)).toBe(
       "HostelPalika Billing <accounts@softmato.com>",
     );

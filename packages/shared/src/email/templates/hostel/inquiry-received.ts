@@ -27,21 +27,21 @@ export function hostelInquiryReceivedEmail(input: {
 
   return {
     category: "support",
-    subject: `New inquiry for ${input.hostelName}`,
+    subject: `Someone wants to know about ${input.hostelName}`,
     html: emailLayout({
-      heading: "You have a new inquiry",
+      heading: "New question about your hostel",
       bodyHtml: [
         paragraph(
-          `Someone enquired about <strong>${escapeHtml(input.hostelName)}</strong> from your public listing.`,
+          `Someone asked about <strong>${escapeHtml(input.hostelName)}</strong> from your hostel page.`,
         ),
         paragraph(details.join("<br/>")),
         input.message
           ? paragraph(`<strong>Message:</strong><br/>${escapeHtml(input.message)}`)
           : "",
         paragraph(
-          "Contact them directly — inquiries are not answered through the platform.",
+          "Please call or message them yourself.",
         ),
-        ctaButton(input.dashboardUrl, "Open inquiry inbox"),
+        ctaButton(input.dashboardUrl, "See all questions"),
       ]
         .filter(Boolean)
         .join("\n"),

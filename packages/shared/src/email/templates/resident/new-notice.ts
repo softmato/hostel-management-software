@@ -28,11 +28,11 @@ export function residentNewNoticeEmail(input: {
       urgent: input.isUrgent,
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> posted a new notice${input.category ? ` (${escapeHtml(input.category)})` : ""}.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> has a new notice${input.category ? ` (${escapeHtml(input.category)})` : ""}.`,
         ),
         paragraph(`<strong>${escapeHtml(input.title)}</strong>`),
         paragraph(escapeHtml(preview).replace(/\n/g, "<br/>")),
-        ctaButton(input.noticesUrl, "Read the full notice"),
+        ctaButton(input.noticesUrl, "Read notice"),
       ].join("\n"),
     }),
   };

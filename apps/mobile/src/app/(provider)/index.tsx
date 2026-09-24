@@ -11,7 +11,7 @@ import { Text } from "@/components/ui/text";
 import { useAppSelector } from "@/hooks/redux";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
-import type { ProviderJob } from "@/lib/provider-api";
+import type { ProviderJob, ProviderJobBoard } from "@/lib/provider-api";
 import {
   completedJobCount,
   isOpenJob,
@@ -23,14 +23,12 @@ import {
 import { providerQuery } from "@/lib/provider-queries";
 
 /**
- * The jobs a hostel assigned to this provider, open work first.
+ * The provider's job board: open jobs they can accept (their trade first, then
+ * every other trade), then their own work, open first.
  *
- * ## There is no "available jobs" tab, and there should not be one
- *
- * Broadcast-and-claim does not exist server-side — PHASES.md §6.1's superseded
- * note records the decision and nothing in `apps/web` implements it. A second
- * tab that was permanently empty would read as a broken app rather than as a
- * product boundary, so the surface is exactly what the endpoint returns.
+ * Accepting happens on the job screen, which is also where a provider reads the
+ * description before committing — a one-tap accept on a row would take jobs
+ * nobody had read.
  *
  * ## Nothing about residents appears here
  *
@@ -65,7 +63,7 @@ export default function ProviderJobsScreen() {
   const dates = useDates();
   const account = useAppSelector((state) => state.auth.account);
   const query = providerQuery.jobs();
-  const jobs = useResource<ProviderJob[]>(query.load, {
+  const board = useResource<ProviderJobBoard>(query.load, {
     cacheKey: query.key,
     topics: query.topics,
   });
@@ -77,7 +75,7 @@ export default function ProviderJobsScreen() {
    */
   const header = <PortalBrandHeader />;
 
-  if (jobs.loading) {
+  if (board.loading) {
     return (
       /* The hero, then a heading and rows — the shape it lands in (NOTES §9). */
       <Screen header={header} insideTabs padded={false} scroll>
@@ -93,20 +91,23 @@ export default function ProviderJobsScreen() {
     );
   }
 
-  if (jobs.error || !jobs.data) {
+  if (board.error || !board.data) {
     return (
       <Screen header={header} insideTabs padded={false}>
         <View className="px-5">
           <ErrorState
-            message={jobs.error ?? "Your jobs could not be loaded."}
-            onRetry={jobs.reload}
+            message={board.error ?? "Your jobs could not be loaded."}
+            onRetry={board.reload}
           />
         </View>
       </Screen>
     );
   }
 
-  const sorted = sortProviderJobs(jobs.data);
+  const jobs = board.data.jobs;
+  const mine = board.data.available.filter((job) => job.inMyTrade);
+  const others = board.data.available.filter((job) => !job.inMyTrade);
+  const sorted = sortProviderJobs(jobs);
   const open = sorted.filter(isOpenJob);
   const closed = sorted.filter((job) => !isOpenJob(job));
 
@@ -117,7 +118,7 @@ export default function ProviderJobsScreen() {
    * door on a single request with a single way to fail.
    */
   const hostelCount = new Set(
-    jobs.data.map((job) => job.hostelName.trim()).filter(Boolean),
+    jobs.map((job) => job.hostelName.trim()).filter(Boolean),
   ).size;
 
   /**
@@ -139,29 +140,55 @@ export default function ProviderJobsScreen() {
     <Screen
       header={header}
       insideTabs
-      onRefresh={jobs.refresh}
+      onRefresh={board.refresh}
       padded={false}
-      refreshing={jobs.refreshing}
+      refreshing={board.refreshing}
       scroll
     >
       <ProviderHero
-        completed={completedJobCount(jobs.data)}
+        completed={completedJobCount(jobs)}
         hostelCount={hostelCount}
         name={account?.name || "Your work"}
-        open={openJobCount(jobs.data)}
-        overdue={overdueJobCount(jobs.data)}
-        urgent={urgentJobCount(jobs.data)}
+        open={openJobCount(jobs)}
+        overdue={overdueJobCount(jobs)}
+        urgent={urgentJobCount(jobs)}
       />
 
       <View className="gap-6 px-5 pt-6">
-        {sorted.length === 0 ? (
+        {sorted.length === 0 && board.data.available.length === 0 ? (
           <Card>
             <EmptyState
-              description="Hostels assign work to you by name. Anything they send appears here, and you'll be notified when it does."
+              description="When a hostel raises work in your trade, you'll be notified and it appears here to accept."
               title="No jobs yet"
             />
           </Card>
         ) : null}
+
+        {[
+          { list: mine, subtitle: "Accept one to get the hostel's number", title: "In your trade" },
+          { list: others, subtitle: "Open to any provider", title: "Other trades" },
+        ].map((section) =>
+          section.list.length > 0 ? (
+            <View key={section.title}>
+              <SectionHeader
+                subtitle={section.subtitle}
+                title={`${section.title} · ${section.list.length}`}
+              />
+              <Card>
+                {section.list.map((job, index) => (
+                  <View key={job.id}>
+                    {index > 0 ? <JobRowDivider /> : null}
+                    <ProviderJobRow
+                      job={job}
+                      onPress={() => router.push(`/job/${job.id}`)}
+                      when={when(job)}
+                    />
+                  </View>
+                ))}
+              </Card>
+            </View>
+          ) : null,
+        )}
 
         {open.length > 0 ? (
           <View>
@@ -170,7 +197,7 @@ export default function ProviderJobsScreen() {
               carries the count, so the section says how much work it holds
               before a row of it is read.
             */}
-            <SectionHeader subtitle="Soonest first" title={`Open · ${open.length}`} />
+            <SectionHeader subtitle="Soonest first" title={`Your open jobs · ${open.length}`} />
             <Card>
               {open.map((job, index) => (
                 <View key={job.id}>
@@ -217,7 +244,7 @@ export default function ProviderJobsScreen() {
 
         {open.length === 0 && closed.length > 0 ? (
           <Text className="px-1" variant="caption">
-            Nothing is open right now. A hostel assigning you work will send you a
+            Nothing of yours is open right now. New jobs in your trade arrive as a
             notification.
           </Text>
         ) : null}

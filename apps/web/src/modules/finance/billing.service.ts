@@ -22,8 +22,10 @@ import { getRentConcession } from "@/modules/finance/rent-concession.service";
 import { paidBeforeJoining } from "@/modules/finance/paid-till";
 import { sumAmounts } from "@/modules/finance/money";
 import { allocateReferenceCode } from "@/modules/finance/reference-sequence.service";
+import { applyPendingFeeOffsQuietly } from "@/modules/offer-program/offer-program.service";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { OfferAwardModel } from "@hostel/db/models/OfferAward";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
 import { ResidentModel } from "@hostel/db/models/Resident";
 
@@ -476,6 +478,21 @@ export async function runBillingCycle(
       // A skip, not a failure — the resident is billed exactly once, which is
       // what was wanted.
       skipped.push({ reason: "ALREADY_BILLED", residentId });
+    }
+  }
+
+  // Resident Offer Program: a fee-off award waiting for a bill comes off this
+  // one, paid by HostelPalika. One query for the whole run, then only the few
+  // residents who have one.
+  if (billed.length > 0) {
+    const waiting = await OfferAwardModel.distinct("residentId", {
+      kind: "FEE_OFF",
+      residentId: { $in: billed.map((invoice) => invoice.residentId) },
+      status: "AWARDED",
+    });
+
+    for (const residentId of waiting) {
+      await applyPendingFeeOffsQuietly(residentId);
     }
   }
 

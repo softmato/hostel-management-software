@@ -12,28 +12,28 @@ export function serviceProviderApprovedEmail(input: {
 
   return {
     category: "info",
-    subject: `Your ${siteName} service provider listing is approved`,
+    subject: `Good news! You are approved on ${siteName}`,
     html: emailLayout({
       heading: "You are listed",
       siteName: input.siteName,
       bodyHtml: [
         paragraph(`Hi ${escapeHtml(input.fullName)},`),
         paragraph(
-          `Your <strong>${escapeHtml(input.category)}</strong> listing has been approved. Hostels searching your category and area can now find you and contact you directly.`,
+          `You are approved as <strong>${escapeHtml(input.category)}</strong>. Hostels in your area can now find you and call you.`,
         ),
         // The single most common support question at this point is "so how do I
         // get in?" — answered here rather than left to be guessed at. There are
         // no new credentials to issue: the account they registered with *is*
         // their provider account.
         paragraph(
-          `Sign in with the same Google account you registered with — there is no separate password to set up. Your <strong>Jobs</strong> tab appears in the menu once you are signed in.`,
+          `Log in with the same Google account you used to register. No password needed. You will see a <strong>Jobs</strong> tab in the menu.`,
         ),
         ctaButton(input.jobsUrl, "Open my jobs"),
         paragraph(
-          `Your ID card is attached to a separate email as a PNG. Show it when you arrive at a hostel.`,
+          `Your ID card comes in another email. Show it when you go to a hostel.`,
         ),
         paragraph(
-          `Hostels will call you about jobs. ${siteName} never shares resident personal details with providers — you only receive the details of the job itself.`,
+          `Hostels will call you for jobs. You only get the job details, not residents' personal details.`,
         ),
       ].join("\n"),
     }),

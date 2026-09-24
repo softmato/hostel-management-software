@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   intentFindOne: vi.fn(),
   intentUpdateOne: vi.fn(),
   invoiceFindOne: vi.fn(),
+  notifyClaimReviewed: vi.fn(),
   parseWebhook: vi.fn(),
   profileUpdateOne: vi.fn(),
   settleEvent: vi.fn(),
@@ -48,6 +49,9 @@ vi.mock("@/modules/residents/resident-access", () => ({
 vi.mock("@/modules/finance/payment-event.service", () => ({
   appendEvent: mocks.appendEvent,
   settleEvent: mocks.settleEvent,
+}));
+vi.mock("@/modules/finance/finance-notify", () => ({
+  notifyClaimReviewed: mocks.notifyClaimReviewed,
 }));
 vi.mock("@/modules/finance/gateway/secret-store", () => ({
   getGatewayCredentials: mocks.credentials,
@@ -355,6 +359,36 @@ describe("verifying an attempt", () => {
 
     expect(outcome.settled).toBe(true);
     expect(mocks.settleEvent).not.toHaveBeenCalled();
+    // A replay must not email the resident a second time.
+    expect(mocks.notifyClaimReviewed).not.toHaveBeenCalled();
+  });
+
+  it("emails the resident their certified receipt once it settles", async () => {
+    mocks.verify.mockResolvedValue(success);
+    mocks.settleEvent.mockResolvedValue({
+      balance: { settledAmount: 12000 },
+      receipt: { _id: eventId, certificationCode: "HP-7K2M-9QXD-4TRA", receiptNumber: "RCP-1" },
+    });
+
+    await verifyPaymentIntent(intentId);
+
+    expect(mocks.notifyClaimReviewed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: expect.objectContaining({
+          certificationCode: "HP-7K2M-9QXD-4TRA",
+          kind: "verified",
+          receiptNumber: "RCP-1",
+          verifiedAmount: 12000,
+        }),
+      }),
+    );
+  });
+
+  it("still reports the payment settled when the email fails", async () => {
+    mocks.verify.mockResolvedValue(success);
+    mocks.notifyClaimReviewed.mockRejectedValueOnce(new Error("SMTP down"));
+
+    expect((await verifyPaymentIntent(intentId)).settled).toBe(true);
   });
 
   /**

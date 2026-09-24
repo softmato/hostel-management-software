@@ -5,6 +5,7 @@ import { connectToDatabase } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
+import { notifyClaimReviewed } from "@/modules/finance/finance-notify";
 import { getGatewayCredentials } from "@/modules/finance/gateway/secret-store";
 import { getProvider } from "@/modules/finance/gateway/registry";
 import type {
@@ -68,6 +69,56 @@ type IntentRecord = {
   settledEventId?: Types.ObjectId | null;
   status: string;
 };
+
+/**
+ * The resident's "payment verified" email for an eSewa/Khalti checkout — the
+ * same one a warden's approval sends, receipt attached. A checkout is started
+ * from the invoice, so it carries its code and its receipt is certified: the
+ * email says it went into the Resident Offer Program.
+ *
+ * **Never throws.** The money has settled and the intent is marked; a mail
+ * server having a bad day must not turn that into an error on the pay screen.
+ */
+async function notifyGatewayPayment(
+  intent: IntentRecord,
+  amount: number,
+  settled: Awaited<ReturnType<typeof settleEvent>> | undefined,
+) {
+  try {
+    const invoice = await InvoiceModel.findOne({ _id: intent.invoiceId }).lean<{
+      period?: string | null;
+      totalAmount: number;
+    } | null>();
+
+    await notifyClaimReviewed({
+      hostelId: intent.hostelId,
+      invoiceId: intent.invoiceId.toString(),
+      outcome: {
+        certificationCode: settled?.receipt?.certificationCode ?? null,
+        kind: "verified",
+        method: intent.provider,
+        receiptId: settled?.receipt?._id ?? null,
+        receiptNumber: settled?.receipt?.receiptNumber ?? null,
+        remainingAmount: Math.max(
+          (invoice?.totalAmount ?? 0) - (settled?.balance?.settledAmount ?? 0),
+          0,
+        ),
+        verifiedAmount: amount,
+      },
+      period: invoice?.period ?? null,
+      residentId: intent.residentId,
+    });
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        action: "gateway_payment_notification_failed",
+        intentId: intent._id.toString(),
+        level: "warn",
+        message: error instanceof Error ? error.message : "Unknown notification error",
+      }),
+    );
+  }
+}
 
 /**
  * Starts a checkout.
@@ -343,13 +394,17 @@ export async function verifyPaymentIntent(
     };
   }
 
-  await settleEvent(event._id, {
+  const settled = await settleEvent(event._id, {
     confirmation: "GATEWAY_VERIFIED",
     principal: options.principal,
     settledAt: now,
   });
 
   await markSucceeded(intent, event._id, now);
+
+  // Only on the call that settled it — a replay above returns before here, so a
+  // retried callback never sends the email twice.
+  await notifyGatewayPayment(intent, result.amount, settled);
 
   return {
     eventId: event._id.toString(),

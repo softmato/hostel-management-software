@@ -8,16 +8,16 @@ export function hostelUnpublishedEmail(input: {
 }): EmailContent {
   return {
     category: "info",
-    subject: `Your listing has been unpublished — ${input.hostelName}`,
+    subject: `Your hostel is hidden from search — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Listing unpublished",
+      heading: "Your hostel is hidden",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> has been removed from public search results by the ${PLATFORM_NAME} team.`,
+          `The ${PLATFORM_NAME} team has hidden <strong>${escapeHtml(input.hostelName)}</strong> from search.`,
         ),
         paragraph(`Reason: ${escapeHtml(input.reason)}`),
         paragraph(
-          "Your hostel and its data are unchanged — only the public listing is hidden. Once the issue above is resolved, reply to this email and our team will review it for republishing.",
+          "Your hostel data is safe. Only the public page is hidden. Fix the problem above, then reply to this email and we will check again.",
         ),
         ctaButton(input.loginUrl, "Go to your dashboard"),
       ].join("\n"),

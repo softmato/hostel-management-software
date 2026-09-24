@@ -6,16 +6,16 @@ export function hostelRejectedEmail(input: {
 }): EmailContent {
   return {
     category: "info",
-    subject: `Update on your hostel registration — ${input.hostelName}`,
+    subject: `Your hostel is not approved — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Registration not approved",
+      heading: "Not approved",
       bodyHtml: [
         paragraph(
-          `We reviewed your registration for <strong>${escapeHtml(input.hostelName)}</strong> and could not approve it at this time.`,
+          `We checked <strong>${escapeHtml(input.hostelName)}</strong>. We cannot approve it now.`,
         ),
         paragraph(`Reason: ${escapeHtml(input.reason)}`),
         paragraph(
-          "You can update your details and submit again. If you believe this is a mistake, reply to this email and our team will take another look.",
+          "You can fix your details and send again. Think we made a mistake? Reply to this email.",
         ),
       ].join("\n"),
     }),

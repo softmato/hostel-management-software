@@ -49,17 +49,17 @@ export function subscriptionClaimReceivedEmail(input: {
 
   return {
     category: "billing",
-    subject: `We have your payment proof — ${formatRupees(input.amount)} for ${input.planName}`,
+    subject: `We got your payment photo — ${formatRupees(input.amount)}`,
     html: emailLayout({
-      heading: "Payment proof received",
+      heading: "We got your payment photo",
       bodyHtml: [
         paragraph(greeting),
         paragraph(
-          `Thank you — we have your proof of payment for <strong>${formatRupees(input.amount)}</strong> against <strong>${escapeHtml(input.planName)}</strong> on <strong>${escapeHtml(input.hostelName)}</strong>.`,
+          `Thank you. We got your payment photo for <strong>${formatRupees(input.amount)}</strong> (<strong>${escapeHtml(input.planName)}</strong>, <strong>${escapeHtml(input.hostelName)}</strong>).`,
         ),
         paragraph(
           [
-            `Against invoice: <strong>${escapeHtml(input.invoiceNumber)}</strong>`,
+            `Bill no.: <strong>${escapeHtml(input.invoiceNumber)}</strong>`,
             input.reference
               ? `Your reference: <strong>${escapeHtml(input.reference)}</strong>`
               : "",
@@ -68,15 +68,15 @@ export function subscriptionClaimReceivedEmail(input: {
             .join("<br/>"),
         ),
         paragraph(
-          "Our team will verify it within <strong>1–2 working days</strong> and email you as soon as it is checked, whether or not everything matches.",
+          "We will check it in <strong>1–2 working days</strong> and email you.",
         ),
         paragraph(
           input.worksUntil
-            ? `Nothing changes in the meantime. Your plan keeps working and your listing stays live until <strong>${escapeHtml(input.worksUntil)}</strong>.`
-            : "Nothing changes in the meantime — your plan keeps working and your listing stays live while we check.",
+            ? `Your plan keeps working until <strong>${escapeHtml(input.worksUntil)}</strong>.`
+            : "Your plan keeps working while we check.",
         ),
         paragraph(
-          "We are still setting up automatic payments. Until that is live, this is how plan payments reach us, and we are grateful for your patience with the extra step.",
+          "Online payment is coming soon. Thank you for your patience.",
         ),
       ].join("\n"),
     }),

@@ -12,15 +12,15 @@ export function accountUpgradedEmail(input: {
 
   return {
     category: "security",
-    subject: `Your ${PLATFORM_NAME} account has been upgraded`,
+    subject: `You have new access on ${PLATFORM_NAME}`,
     html: emailLayout({
-      heading: "Account upgraded",
+      heading: "You have new access",
       bodyHtml: [
         paragraph(
-          `Your existing ${PLATFORM_NAME} account has been upgraded to <strong>${escapeHtml(input.roleLabel)}</strong>${context}.`,
+          `Your ${PLATFORM_NAME} account is now <strong>${escapeHtml(input.roleLabel)}</strong>${context}.`,
         ),
         paragraph(
-          "Your login details have not changed — sign in with the same email/password or Google account you already use, and you will land on your new dashboard.",
+          "Log in the same way as before (email and password, or Google). You will see your new dashboard.",
         ),
         ctaButton(input.dashboardUrl, "Open dashboard"),
       ].join("\n"),

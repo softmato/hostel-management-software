@@ -17,19 +17,19 @@ export function cookInvitationEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: `Cook access — ${input.hostelName}`,
+    subject: `You are invited as cook — ${input.hostelName}`,
     html: emailLayout({
-      heading: "You have been invited to run the kitchen",
+      heading: "You are invited as cook",
       bodyHtml: [
         paragraph(
-          `Hello ${escapeHtml(input.cookName)}, <strong>${escapeHtml(input.hostelName)}</strong> has invited you to their kitchen on ${PLATFORM_NAME}.`,
+          `Hi ${escapeHtml(input.cookName)}, <strong>${escapeHtml(input.hostelName)}</strong> wants you as their cook on ${PLATFORM_NAME}.`,
         ),
         paragraph(
-          "Accepting turns this email address into your cook sign-in. You will be able to tell residents that a meal is ready and post photos of what was served — and nothing else: the account cannot see resident records, money or complaints.",
+          "You will log in with this email. You can tell residents when food is ready and post food photos. You cannot see residents, money or complaints.",
         ),
-        ctaButton(input.acceptUrl, "Accept the invitation"),
+        ctaButton(input.acceptUrl, "Accept"),
         paragraph(
-          `The link works once and expires in ${input.expiresInDays} day(s). If it has run out, ask the hostel to send a fresh one.`,
+          `This link works one time, for ${input.expiresInDays} day(s). If it stops working, ask the hostel for a new one.`,
         ),
       ].join("\n"),
     }),

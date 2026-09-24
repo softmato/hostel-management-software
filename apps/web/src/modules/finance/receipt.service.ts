@@ -8,6 +8,11 @@ import { auditFinanceAction } from "@/modules/finance/audit-finance";
 import { FinanceServiceError } from "@/modules/finance/finance.errors";
 import { listResidentInvoices } from "@/modules/finance/ledger-read.service";
 import { renderReceiptPdf, renderStatementPdf } from "@/modules/finance/receipt-pdf";
+import {
+  maskedName,
+  newCertificationCode,
+  normalizeCertificationCode,
+} from "@/modules/offer-program/offer-program.rules";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { InvoiceModel } from "@hostel/db/models/Invoice";
 import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
@@ -38,6 +43,7 @@ import { ReceiptModel } from "@hostel/db/models/Receipt";
 export type ReceiptRecord = {
   _id: Types.ObjectId;
   amount: number;
+  certificationCode?: string | null;
   eventId?: Types.ObjectId | null;
   hostelId: Types.ObjectId;
   invoiceId?: Types.ObjectId | null;
@@ -148,6 +154,8 @@ export function periodCoverage(
 
 export type IssueReceiptInput = {
   amount: number;
+  /** Resident Offer Program: see `qualifiesForOfferProgram`. */
+  certify?: boolean;
   eventId: Types.ObjectId | string;
   hostelId: Types.ObjectId | string;
   invoiceId?: Types.ObjectId | string | null;
@@ -190,6 +198,9 @@ export async function issueReceiptForEvent(
   try {
     return (await ReceiptModel.create({
       amount: input.amount,
+      ...(input.certify
+        ? { certificationCode: newCertificationCode(), certifiedAt: issuedAt }
+        : {}),
       eventId: input.eventId,
       hostelId: input.hostelId,
       invoiceId: input.invoiceId ?? null,
@@ -270,14 +281,10 @@ export async function renderReceiptById(
           .select("period referenceCode")
           .lean<{ period?: string; referenceCode?: string } | null>()
       : null,
-    // Read at render time rather than snapshotted onto the receipt (item E.7).
-    // The confirmation level changes *after* the document is minted — that is the
-    // entire point of provisional credit — and a copy on the receipt would still
-    // be hedging weeks after the statement confirmed the money.
     receipt.eventId
       ? PaymentEventModel.findOne({ _id: receipt.eventId })
-          .select("confirmation")
-          .lean<{ confirmation?: string } | null>()
+          .select("source")
+          .lean<{ source?: string } | null>()
       : null,
   ]);
 
@@ -285,6 +292,7 @@ export async function renderReceiptById(
 
   const bytes = await renderReceiptPdf({
     amount: receipt.amount,
+    certificationCode: receipt.certificationCode ?? null,
     coversFrom: coverage?.from ?? null,
     coversTo: coverage?.to ?? null,
     hostelName: hostel?.name ?? "Hostel",
@@ -293,12 +301,10 @@ export async function renderReceiptById(
     // own receipt pad. `monthLabel` keeps a pre-cutover key in English.
     invoicePeriod: invoice?.period ? monthLabel(invoice.period) : null,
     issuedAt: receipt.issuedAt,
-    // Only `MANUAL_REVIEW` hedges. A statement match and a gateway verification
-    // are both independent of the payer; an `UNCONFIRMED` event has no business
-    // holding a receipt at all, and a receipt with no event behind it predates
-    // the ledger — neither is a case for putting a warning on a resident's
-    // document about a distinction the product did not make when it was issued.
-    provisional: event?.confirmation === "MANUAL_REVIEW",
+    method:
+      event?.source === "OFFER_PROGRAM"
+        ? "Paid by HostelPalika - Resident Offer Program"
+        : null,
     receiptNumber: receipt.receiptNumber,
     referenceCode: invoice?.referenceCode ?? null,
     residentName:
@@ -404,6 +410,11 @@ export async function voidReceipt(
 
     replacement = (await ReceiptModel.create({
       amount: options.reissue.amount,
+      // A correction of a certified receipt stays certified — under a code of
+      // its own, because the code names one document and the old one is void.
+      ...(receipt.certificationCode
+        ? { certificationCode: newCertificationCode(), certifiedAt: issuedAt }
+        : {}),
       // Deliberately not `eventId`: the unique index permits one receipt per
       // event, and the voided one already holds it. A replacement is a document
       // about the same money, not a second claim to it.
@@ -445,4 +456,73 @@ export async function voidReceipt(
   });
 
   return { receipt, replacement };
+}
+
+export type ReceiptVerification =
+  | { found: false }
+  | {
+      amount: number;
+      certificationCode: string;
+      found: true;
+      hostelName: string;
+      issuedAt: string;
+      period: string | null;
+      receiptNumber: string;
+      /** First name and last initial — enough to match a printout, no more. */
+      residentName: string;
+      voidedAt: string | null;
+    };
+
+/**
+ * The public side of a certified receipt: anyone holding one — a landlord, a
+ * parent, a bank — types its code and sees what we recorded. A forged receipt
+ * either has no code that exists, or borrows a real one and shows somebody
+ * else's amount and name.
+ */
+export async function verifyReceiptByCode(input: string): Promise<ReceiptVerification> {
+  const code = normalizeCertificationCode(input);
+
+  if (!code) {
+    return { found: false };
+  }
+
+  await connectToDatabase();
+
+  const receipt = await ReceiptModel.findOne({ certificationCode: code }).lean<
+    (ReceiptRecord & { certificationCode: string }) | null
+  >();
+
+  if (!receipt) {
+    return { found: false };
+  }
+
+  const [hostel, resident, invoice] = await Promise.all([
+    HostelModel.findOne({ _id: receipt.hostelId })
+      .select("name")
+      .lean<{ name?: string } | null>(),
+    ResidentModel.findOne({ _id: receipt.residentId })
+      .select("firstName fullName lastName")
+      .lean<{ firstName?: string; fullName?: string; lastName?: string } | null>(),
+    receipt.invoiceId
+      ? InvoiceModel.findOne({ _id: receipt.invoiceId })
+          .select("period")
+          .lean<{ period?: string } | null>()
+      : null,
+  ]);
+
+  return {
+    amount: receipt.amount,
+    certificationCode: receipt.certificationCode,
+    found: true,
+    hostelName: hostel?.name ?? "Hostel",
+    issuedAt: receipt.issuedAt.toISOString(),
+    period: invoice?.period ? monthLabel(invoice.period) : null,
+    receiptNumber: receipt.receiptNumber,
+    residentName: maskedName(
+      resident?.fullName ||
+        [resident?.firstName, resident?.lastName].filter(Boolean).join(" ") ||
+        "Resident",
+    ),
+    voidedAt: receipt.voidedAt?.toISOString() ?? null,
+  };
 }

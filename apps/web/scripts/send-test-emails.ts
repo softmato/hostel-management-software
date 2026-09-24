@@ -144,6 +144,7 @@ function sampleFor(category: EmailCategory): EmailContent {
         amount: 8500,
         hostelName: HOSTEL,
         month: new Date().toISOString().slice(0, 7),
+        offerProgramUrl: "https://example.test/resident/offer-program",
         paymentsUrl: "https://example.test/resident/payments",
         receiptNumber: "TEST-0001",
         remainingAmount: 0,

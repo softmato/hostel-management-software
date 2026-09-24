@@ -11,17 +11,17 @@ import {
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { PublicShell } from "@/app/_components/shared";
 import { browserApi } from "@/lib/browser-api";
 import { cn } from "@/lib/utils";
 
 /**
  * The service provider's job feed — their only screen on the website.
  *
- * Providers get no portal by design: they are a public account with an approved
- * provider record, so this lives on the public site behind the same header,
- * which swaps the hostel-shopping tabs for a "Jobs" one once they are approved.
- * Every card here is a maintenance request a hostel admin assigned to them.
+ * A provider is a public account with an approved provider record, so the
+ * `/jobs` portal is guarded by sign-in only (see `route-access.ts`); the
+ * public header still carries a "Jobs" tab into it once they are approved.
+ * "Available" is every open request on the platform (their trade first) that
+ * they can accept; "Open" and "Past work" are the jobs that are theirs.
  */
 
 type ProviderJob = {
@@ -33,7 +33,9 @@ type ProviderJob = {
   hostelName: string;
   hostelPhone: string;
   id: string;
+  inMyTrade: boolean;
   location: string;
+  minimumCharge: number | null;
   priority: string;
   scheduledFor: string | null;
   status: string;
@@ -91,7 +93,15 @@ function Pill({ className, label }: { className: string; label: string }) {
   );
 }
 
-function JobCard({ job }: { job: ProviderJob }) {
+function JobCard({
+  accepting,
+  job,
+  onAccept,
+}: {
+  accepting?: boolean;
+  job: ProviderJob;
+  onAccept?: () => void;
+}) {
   const where = [job.hostelArea, job.hostelCity].filter(Boolean).join(", ");
 
   return (
@@ -132,6 +142,12 @@ function JobCard({ job }: { job: ProviderJob }) {
             <dd className="truncate">{[job.location, where].filter(Boolean).join(" · ")}</dd>
           </div>
         ) : null}
+        {job.minimumCharge !== null ? (
+          <div className="flex items-center gap-2">
+            <Briefcase className="size-3.5 shrink-0 text-brand-teal" />
+            <dd>Minimum fee NPR {job.minimumCharge.toLocaleString("en-US")}</dd>
+          </div>
+        ) : null}
         {job.scheduledFor ? (
           <div className="flex items-center gap-2">
             <CalendarClock className="size-3.5 shrink-0 text-brand-teal" />
@@ -155,21 +171,42 @@ function JobCard({ job }: { job: ProviderJob }) {
           Raised {formatDate(job.createdAt)}
         </p>
       ) : null}
+
+      {onAccept ? (
+        <button
+          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+          disabled={accepting}
+          onClick={onAccept}
+          type="button"
+        >
+          {accepting ? <Loader2 className="size-4 animate-spin" /> : null}
+          Accept job
+        </button>
+      ) : null}
     </article>
   );
 }
 
+type JobBoard = { available: ProviderJob[]; jobs: ProviderJob[] };
+
+const loadBoard = () =>
+  browserApi<JobBoard>("/api/v1/public/service-providers/me/jobs");
+
 export function ProviderJobsPage() {
   const [jobs, setJobs] = useState<ProviderJob[] | null>(null);
+  const [available, setAvailable] = useState<ProviderJob[]>([]);
   const [failed, setFailed] = useState(false);
+  const [accepting, setAccepting] = useState<string | null>(null);
+  const [acceptError, setAcceptError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    void browserApi<{ jobs: ProviderJob[] }>("/api/v1/public/service-providers/me/jobs")
+    void loadBoard()
       .then((data) => {
         if (isMounted) {
           setJobs(data.jobs);
+          setAvailable(data.available);
         }
       })
       .catch(() => {
@@ -183,12 +220,35 @@ export function ProviderJobsPage() {
     };
   }, []);
 
+  async function accept(jobId: string) {
+    setAccepting(jobId);
+    setAcceptError("");
+
+    try {
+      await browserApi(`/api/v1/public/service-providers/me/jobs/${jobId}/accept`, {
+        method: "POST",
+      });
+    } catch (error) {
+      setAcceptError(error instanceof Error ? error.message : "That job could not be accepted.");
+    }
+
+    // Either way the board has moved: reload so the phone number arrives, or
+    // the job somebody else took disappears.
+    try {
+      const data = await loadBoard();
+      setJobs(data.jobs);
+      setAvailable(data.available);
+    } finally {
+      setAccepting(null);
+    }
+  }
+
   const open = jobs?.filter((job) => OPEN_STATUSES.has(job.status)) ?? [];
   const closed = jobs?.filter((job) => !OPEN_STATUSES.has(job.status)) ?? [];
 
   return (
-    <PublicShell active="jobs">
-      <div className="mx-auto max-w-3xl px-6 py-20">
+    <>
+      <div className="mx-auto max-w-3xl py-2">
         <div className="mb-10">
           <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-brand-teal/10">
             <Briefcase className="size-6 text-brand-teal" />
@@ -197,7 +257,7 @@ export function ProviderJobsPage() {
             Your jobs
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Maintenance work hostels have assigned to you. Call the hostel directly to
+            Accept an open job to get the hostel&apos;s number, then call them to
             arrange a time.
           </p>
         </div>
@@ -219,19 +279,45 @@ export function ProviderJobsPage() {
               .
             </p>
           </div>
-        ) : jobs === null || jobs.length === 0 ? (
+        ) : jobs === null || (jobs.length === 0 && available.length === 0) ? (
           <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-center sm:p-10">
             <p className="text-sm font-semibold text-foreground">No jobs yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              When a hostel assigns you maintenance work, it appears here.
+              When a hostel raises work in your trade, you&apos;ll be notified and it
+              appears here.
             </p>
           </div>
         ) : (
           <div className="space-y-8">
+            {acceptError ? (
+              <p className="text-sm font-semibold text-danger">{acceptError}</p>
+            ) : null}
+
+            {[
+              { heading: "In your trade", list: available.filter((job) => job.inMyTrade) },
+              { heading: "Other trades", list: available.filter((job) => !job.inMyTrade) },
+            ].map(({ heading, list }) =>
+              list.length > 0 ? (
+                <section className="space-y-3" key={heading}>
+                  <h2 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    {heading} · {list.length}
+                  </h2>
+                  {list.map((job) => (
+                    <JobCard
+                      accepting={accepting === job.id}
+                      job={job}
+                      key={job.id}
+                      onAccept={() => void accept(job.id)}
+                    />
+                  ))}
+                </section>
+              ) : null,
+            )}
+
             {open.length > 0 ? (
               <section className="space-y-3">
                 <h2 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Open · {open.length}
+                  Your open jobs · {open.length}
                 </h2>
                 {open.map((job) => (
                   <JobCard job={job} key={job.id} />
@@ -252,6 +338,6 @@ export function ProviderJobsPage() {
           </div>
         )}
       </div>
-    </PublicShell>
+    </>
   );
 }

@@ -15,9 +15,10 @@ import { Text } from "@/components/ui/text";
 import { useDates } from "@/hooks/use-dates";
 import { useResource } from "@/hooks/use-resource";
 import { readApiError } from "@/lib/api-contract";
-import { humanizeEnum } from "@/lib/format";
+import { formatMoney, humanizeEnum } from "@/lib/format";
 import {
-  type ProviderJob,
+  acceptProviderJob,
+  type ProviderJobBoard,
   type ProviderJobStatus,
   updateProviderJobStatus,
 } from "@/lib/provider-api";
@@ -40,6 +41,10 @@ import { toastError, toastSuccess } from "@/lib/toast";
  *
  * ## Two actions, deliberately
  *
+ * An open board job offers one action instead: Accept. It moves the job to
+ * CONTACTED and reloads the board, which is what brings the hostel's number and
+ * the voice note — neither is sent for a job nobody has taken.
+ *
  * `serviceProviderJobStatusSchema` accepts `CONTACTED` and `COMPLETED` and
  * nothing else. Cancelling is the hostel's decision, scheduling carries a date
  * this screen has no field for, and reopening a signed-off job would let a
@@ -52,12 +57,28 @@ export default function ProviderJobScreen() {
   const jobId = params.id ?? "";
 
   const query = providerQuery.jobs();
-  const jobs = useResource<ProviderJob[]>(query.load, {
+  const jobs = useResource<ProviderJobBoard>(query.load, {
     cacheKey: query.key,
     topics: query.topics,
   });
 
-  const [busy, setBusy] = useState<ProviderJobStatus | null>(null);
+  const [busy, setBusy] = useState<ProviderJobStatus | "ACCEPT" | null>(null);
+
+  const accept = useCallback(async () => {
+    setBusy("ACCEPT");
+
+    try {
+      await acceptProviderJob(jobId);
+      toastSuccess("Job accepted", "Call the hostel to arrange a time.");
+    } catch (caught) {
+      toastError("Couldn't accept it", readApiError(caught));
+    } finally {
+      // Won or lost, the board moved: reload for the phone number, or so the
+      // job somebody else took leaves the list.
+      await jobs.refresh();
+      setBusy(null);
+    }
+  }, [jobId, jobs]);
 
   const move = useCallback(
     async (status: ProviderJobStatus) => {
@@ -72,11 +93,16 @@ export default function ProviderJobScreen() {
           call was made with; the response's own `status` is a bare string, and
           its `completedAt` is not a field `ProviderJob` carries.
 
-          The list is shared with the provider's home tab on `provider:jobs`, so
-          this repaints both — see `lib/provider-queries.ts`.
+          The board is shared with the provider's home tab on `provider:board`,
+          so this repaints both — see `lib/provider-queries.ts`.
         */
         jobs.setData((current) =>
-          current?.map((job) => (job.id === jobId ? { ...job, status } : job)) ?? current,
+          current
+            ? {
+                ...current,
+                jobs: current.jobs.map((job) => (job.id === jobId ? { ...job, status } : job)),
+              }
+            : current,
         );
         toastSuccess(status === "COMPLETED" ? "Marked complete" : "Marked contacted");
       } catch (caught) {
@@ -112,15 +138,17 @@ export default function ProviderJobScreen() {
     );
   }
 
-  const job = jobs.data.find((row) => row.id === jobId);
+  const assigned = jobs.data.jobs.find((row) => row.id === jobId);
+  const job = assigned ?? jobs.data.available.find((row) => row.id === jobId);
 
   if (!job) {
     return (
       <Screen header={header}>
         <Card className="gap-3">
-          <Text variant="label">This job is no longer yours</Text>
+          <Text variant="label">This job is no longer available</Text>
           <Text variant="muted">
-            It was reassigned or removed by the hostel. Nothing you did caused this.
+            Another provider took it, or the hostel closed it. Nothing you did caused
+            this.
           </Text>
           <Button
             label="Back to jobs"
@@ -138,7 +166,13 @@ export default function ProviderJobScreen() {
   return (
     <Screen
       footer={
-        actions.canComplete || actions.canContact ? (
+        !assigned ? (
+          <Button
+            label="Accept job"
+            loading={busy === "ACCEPT"}
+            onPress={() => void accept()}
+          />
+        ) : actions.canComplete || actions.canContact ? (
           <View className="gap-2">
             {actions.canComplete ? (
               <Button
@@ -233,17 +267,23 @@ export default function ProviderJobScreen() {
         <View>
           <SectionHeader title="When" />
           <Card>
+            {job.minimumCharge !== null ? (
+              <>
+                <ListRow title="Minimum fee" value={formatMoney(job.minimumCharge)} />
+                <RowDivider />
+              </>
+            ) : null}
             <ListRow
               title="Scheduled"
               value={job.scheduledFor ? dates.date(job.scheduledFor) : "Not scheduled"}
             />
             <RowDivider />
             <ListRow
-              title="Assigned"
+              title="Raised"
               value={job.createdAt ? dates.relativeDay(job.createdAt) : "—"}
             />
           </Card>
-          {!actions.canComplete ? (
+          {assigned && !actions.canComplete ? (
             <Text className="px-1 pt-2" variant="caption">
               This job is closed. Reopening it is the hostel&apos;s decision — call them
               if something is wrong.

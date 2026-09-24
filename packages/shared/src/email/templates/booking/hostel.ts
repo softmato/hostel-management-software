@@ -40,27 +40,27 @@ export type HostelBookingClosedCause =
 const CLOSED_COPY: Record<HostelBookingClosedCause, { heading: string; line: string }> = {
   CANCELLED_BEFORE_CONFIRMATION: {
     heading: "Booking cancelled by the guest",
-    line: "The guest cancelled before you answered. There is nothing to do.",
+    line: "The guest cancelled before you answered. You do not need to do anything.",
   },
   CANCELLED_BY_PLATFORM: {
     heading: `Booking cancelled by ${PLATFORM_NAME}`,
     line: `${PLATFORM_NAME} cancelled this booking and refunded the guest.`,
   },
   DECLINED: {
-    heading: "You declined a booking",
-    line: `You declined this booking. ${PLATFORM_NAME} refunds the guest in full. There is nothing more to do.`,
+    heading: "You said no to a booking",
+    line: `You said no to this booking. ${PLATFORM_NAME} gives the guest all the money back. You do not need to do anything.`,
   },
   CANCELLED_BY_USER: {
     heading: "Booking cancelled by the guest",
-    line: "The guest cancelled. The bed you held is free again.",
+    line: "The guest cancelled. The bed is free again.",
   },
   HOSTEL_NO_RESPONSE: {
     heading: "Booking missed",
-    line: "Nobody answered this booking in time. The guest is refunded in full and it counts as a missed booking for your hostel.",
+    line: "Nobody answered this booking in time. The guest gets all the money back. This counts as a missed booking for your hostel.",
   },
   NO_SHOW: {
     heading: "Guest did not move in",
-    line: "The hold ended without the guest moving in. The bed you held is free again.",
+    line: "The guest did not move in on time. The bed is free again.",
   },
 };
 
@@ -117,25 +117,25 @@ export function bookingPayoutSentEmail(input: {
 }): EmailContent {
   return {
     category: "billing",
-    subject: `Payout sent — ${rupees(input.amount)} for booking ${input.code}`,
+    subject: `We sent you ${rupees(input.amount)} for booking ${input.code}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph(`${PLATFORM_NAME} sent ${escapeHtml(input.hostelName)}'s share of a booking fee.`),
+        paragraph(`${PLATFORM_NAME} sent ${escapeHtml(input.hostelName)} its part of a booking fee.`),
         detailsTable([
           { emphasis: true, label: "Amount", value: rupees(input.amount) },
           { label: "Paid to", value: input.paidTo },
           { label: "Sent on", value: input.sentOn },
           { label: "Transaction ID", value: input.transactionId },
-          { label: "Payout advice", value: input.documentNumber ?? "" },
+          { label: "Payment slip", value: input.documentNumber ?? "" },
           { label: "Booking", value: input.code },
           { label: "Guest", value: input.guestName },
           { label: "Room type", value: input.roomType },
         ]),
         ctaButton(input.bookingsUrl, "Open bookings"),
       ].join(""),
-      eyebrow: "Payout",
-      heading: "Payout sent",
+      eyebrow: "Payment",
+      heading: "We sent your money",
       preheader: `${rupees(input.amount)} sent to ${input.paidTo}. Transaction ${input.transactionId}.`,
     }),
   };
@@ -152,26 +152,26 @@ export function bookingAnswerReminderEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `Less than ${hoursWord(input.hoursLeft)} to answer — ${input.guestName}, ${input.roomType}`,
+    subject: `Please answer ${input.guestName}'s booking — only ${hoursWord(input.hoursLeft)} left`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
-        paragraph(`<strong>${escapeHtml(input.guestName)}</strong>'s booking is still waiting for your answer.`),
+        paragraph(`<strong>${escapeHtml(input.guestName)}</strong> is still waiting for your answer.`),
         detailsTable([
           { label: "Booking", value: input.code },
           { label: "Guest", value: input.guestName },
           { label: "Phone", value: input.guestPhone ?? "" },
           { label: "Room type", value: input.roomType },
           { emphasis: true, label: "Answer by", value: input.answerBy },
-          { label: "Your share after they move in", value: rupees(input.hostelShare) },
+          { label: "You get after they move in", value: rupees(input.hostelShare) },
         ]),
-        ctaButton(input.bookingsUrl, "Confirm or decline"),
+        ctaButton(input.bookingsUrl, "Say yes or no"),
         smallPrint(
-          `No answer by ${escapeHtml(input.answerBy)} cancels the booking, refunds the guest in full and counts as a missed booking for your hostel.`,
+          `If you do not answer by ${escapeHtml(input.answerBy)}, the booking is cancelled, the guest gets all the money back, and it counts as a missed booking.`,
         ),
       ].join(""),
       eyebrow: "Reminder",
-      heading: "Answer this booking",
+      heading: "Please answer this booking",
       preheader: `${input.guestName} is waiting. Answer by ${input.answerBy}.`,
       urgent: true,
     }),
@@ -188,20 +188,20 @@ export function bookingsPausedEmail(input: {
 }): EmailContent {
   return {
     category: "billing",
-    subject: `Bookings paused on ${input.hostelName}`,
+    subject: `Bookings are stopped for ${input.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
         paragraph(
-          `${escapeHtml(input.hostelName)} missed or cancelled ${input.strikes} bookings in ${input.windowDays} days, so people can no longer book it.`,
+          `${escapeHtml(input.hostelName)} missed or cancelled ${input.strikes} bookings in ${input.windowDays} days. So people cannot book it now.`,
         ),
         paragraph(
-          `Bookings you already confirmed are not affected. Contact ${PLATFORM_NAME} to have bookings turned back on.`,
+          `Bookings you already said yes to stay the same. Contact ${PLATFORM_NAME} to turn bookings on again.`,
         ),
         ctaButton(input.bookingsUrl, "Open bookings"),
       ].join(""),
       eyebrow: "Bookings",
-      heading: "Bookings paused",
+      heading: "Bookings are stopped",
       preheader: `${input.strikes} missed or cancelled bookings in ${input.windowDays} days.`,
       urgent: true,
     }),
@@ -220,7 +220,7 @@ export function bookingRequestEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `${input.guestName} booked a ${input.roomType} — answer by ${input.answerBy}`,
+    subject: `New booking from ${input.guestName} — please answer by ${input.answerBy}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),
@@ -233,18 +233,18 @@ export function bookingRequestEmail(
           { label: "Phone", value: input.guestPhone ?? "" },
           { label: "Room type", value: input.roomType },
           { emphasis: true, label: "Answer by", value: input.answerBy },
-          { label: "Your share after they move in", value: rupees(input.hostelShare) },
+          { label: "You get after they move in", value: rupees(input.hostelShare) },
         ]),
         paragraph(
-          `Confirm to hold one bed for ${input.holdDays} days. They move in when you scan their ${PLATFORM_NAME} ID card.`,
+          `Say yes to keep one bed for ${input.holdDays} days. They move in when you scan their ${PLATFORM_NAME} ID card.`,
         ),
-        ctaButton(input.bookingsUrl, "Confirm or decline"),
+        ctaButton(input.bookingsUrl, "Say yes or no"),
         smallPrint(
-          `No answer in ${input.answerHours} hours cancels the booking, refunds the guest in full and counts as a missed booking for your hostel.`,
+          `If you do not answer in ${input.answerHours} hours, the booking is cancelled, the guest gets all the money back, and it counts as a missed booking.`,
         ),
       ].join(""),
       eyebrow: "New booking",
-      heading: "Confirm this booking",
+      heading: "You have a new booking",
       preheader: `${input.guestName} booked a ${input.roomType}. Answer by ${input.answerBy}.`,
     }),
   };

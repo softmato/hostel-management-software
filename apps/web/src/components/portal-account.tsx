@@ -35,7 +35,7 @@ type MeResponse =
       success: false;
     };
 
-type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team";
+type PortalTone = "platform" | "admin" | "resident" | "guardian" | "team" | "cook" | "provider";
 
 function readableRole(role: string) {
   return role
@@ -51,6 +51,8 @@ const toneRing: Record<PortalTone, string> = {
   platform: "ring-role-platform/20",
   resident: "ring-role-resident/20",
   team: "ring-role-team/20",
+  cook: "ring-role-team/20",
+  provider: "ring-role-team/20",
 };
 
 const toneBg: Record<PortalTone, string> = {
@@ -59,6 +61,8 @@ const toneBg: Record<PortalTone, string> = {
   platform: "bg-role-platform-soft text-role-platform",
   resident: "bg-role-resident-soft text-role-resident",
   team: "bg-role-team-soft text-role-team",
+  cook: "bg-role-team-soft text-role-team",
+  provider: "bg-role-team-soft text-role-team",
 };
 
 export function PortalAccount({ tone = "platform" }: { tone?: PortalTone }) {

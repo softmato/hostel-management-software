@@ -43,14 +43,14 @@ export function hostelRegisteredByTeamEmail(input: {
 
   return {
     category: "info",
-    subject: `${input.hostelName} is live on ${PLATFORM_NAME}`,
+    subject: `${input.hostelName} is now online on ${PLATFORM_NAME}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.ownerName),
         paragraph(
           input.agentName
-            ? `<strong>${escapeHtml(input.agentName)}</strong> from our team registered <strong>${escapeHtml(input.hostelName)}</strong> with you. It is published and visible to students looking for a place to stay.`
-            : `<strong>${escapeHtml(input.hostelName)}</strong> is registered, published and visible to students looking for a place to stay.`,
+            ? `<strong>${escapeHtml(input.agentName)}</strong> from our team added <strong>${escapeHtml(input.hostelName)}</strong> with you. It is now online. Students can see it.`
+            : `<strong>${escapeHtml(input.hostelName)}</strong> is now online. Students can see it.`,
         ),
         detailsTable([
           { label: "Plan", value: input.planName },
@@ -62,10 +62,10 @@ export function hostelRegisteredByTeamEmail(input: {
             ? [
                 {
                   emphasis: true,
-                  label: "Balance due",
+                  label: "Left to pay",
                   value: formatRupees(input.outstanding),
                 },
-                { label: "Due date", value: input.dueBy ?? "" },
+                { label: "Pay by", value: input.dueBy ?? "" },
               ]
             : []),
         ]),
@@ -73,22 +73,22 @@ export function hostelRegisteredByTeamEmail(input: {
           ? [
               ctaButton(input.billingUrl, "Pay now"),
               smallPrint(
-                `Your listing stays live while you pay. ${textLink(input.listingUrl, "View your listing")}`,
+                `Your hostel stays online while you pay. ${textLink(input.listingUrl, "See your hostel")}`,
               ),
             ]
           : [
               paragraph(
                 owes
-                  ? "You can pay the balance from your dashboard. Your listing stays live in the meantime."
-                  : "Your plan is paid in full. Nothing more is due.",
+                  ? "You can pay the rest from your dashboard. Your hostel stays online."
+                  : "Your plan is fully paid. Nothing more to pay.",
               ),
-              ctaButton(input.listingUrl, "View your listing"),
+              ctaButton(input.listingUrl, "See your hostel"),
             ]),
       ].join("\n"),
-      heading: "Your listing is live",
+      heading: "Your hostel is online",
       preheader: owes
-        ? `${input.hostelName} is published. ${formatRupees(input.outstanding)} is still due${input.dueBy ? ` by ${input.dueBy}` : ""}.`
-        : `${input.hostelName} is published and your plan is paid in full.`,
+        ? `${input.hostelName} is online. Please pay ${formatRupees(input.outstanding)}${input.dueBy ? ` by ${input.dueBy}` : ""}.`
+        : `${input.hostelName} is online and your plan is fully paid.`,
     }),
   };
 }

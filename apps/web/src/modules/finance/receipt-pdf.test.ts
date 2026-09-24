@@ -16,7 +16,7 @@ import {
   systemDocumentKindFromText,
 } from "@/modules/finance/evidence";
 import {
-  SUBJECT_TO_CONFIRMATION,
+  receiptVerifyUrl,
   renderReceiptPdf,
   renderStatementPdf,
 } from "@/modules/finance/receipt-pdf";
@@ -256,8 +256,6 @@ describe("the receipt's coverage window and certification", () => {
     expect(text).toContain("01 Aug 2026");
     expect(text).toContain("Covers until");
     expect(text).toContain("31 Aug 2026");
-    expect(text).toContain("CERTIFIED");
-    expect(text).toContain("RESIDENT OFFER PROGRAM");
   });
 
   it("omits the coverage lines when the invoice buys no period", async () => {
@@ -298,13 +296,10 @@ describe("the receipt's coverage window and certification", () => {
 });
 
 /**
- * Item E.7 — a receipt says only as much as is known.
- *
- * A warden's approval credits the money instantly, which is right. What it does
- * not establish is that the hostel received anything, and until the account
- * statement carries the credit the receipt must not claim otherwise.
+ * The Resident Offer Program stamp: reference quoted and verified → certified,
+ * with a code anyone can check. Anything else is receipted, not certified.
  */
-describe("provisional receipts", () => {
+describe("Resident Offer Program certification", () => {
   const base = {
     amount: 12000,
     hostelName: "Rupa Hostel",
@@ -313,38 +308,44 @@ describe("provisional receipts", () => {
     residentName: "Sita Sharma",
   };
 
-  it("says it is subject to confirmation, and does not certify", async () => {
+  it("certifies, prints the code, and says where to check it", async () => {
     const text = await textOf(
-      await renderReceiptPdf({ ...base, provisional: true }),
+      await renderReceiptPdf({ ...base, certificationCode: "HP-7K2M-9QXD-4TRA" }),
     );
 
-    expect(text).toContain(SUBJECT_TO_CONFIRMATION);
-    expect(text).toContain("PROVISIONAL");
-    expect(text).not.toContain("CERTIFIED");
-  });
-
-  it("stops hedging once the statement has confirmed it", async () => {
-    const text = await textOf(
-      await renderReceiptPdf({ ...base, provisional: false }),
-    );
-
-    expect(text).not.toContain(SUBJECT_TO_CONFIRMATION);
     expect(text).toContain("CERTIFIED");
+    expect(text).toContain("RESIDENT OFFER PROGRAM");
+    expect(text).toContain("HP-7K2M-9QXD-4TRA");
+    expect(text).toContain("hostelpalika.com/verify-receipt");
+    expect(text).toContain("Issued on behalf of Rupa Hostel");
+    expect(text).not.toContain("PROVISIONAL");
   });
 
-  // "Void" already answers the question the qualifier asks, and stacking the two
-  // reads as a document arguing with itself.
-  it("does not qualify a voided receipt", async () => {
+  it("receipts a payment with no reference, without the programme stamp", async () => {
+    const text = await textOf(await renderReceiptPdf(base));
+
+    expect(text).toContain("PAID");
+    expect(text).not.toContain("CERTIFIED");
+    expect(text).not.toContain("RESIDENT OFFER PROGRAM");
+  });
+
+  it("drops the code from a voided receipt", async () => {
     const text = await textOf(
       await renderReceiptPdf({
         ...base,
-        provisional: true,
+        certificationCode: "HP-7K2M-9QXD-4TRA",
         voidReason: "Issued against the wrong invoice",
         voidedAt: new Date("2026-08-09T00:00:00.000Z"),
       }),
     );
 
     expect(text).toContain("VOID");
-    expect(text).not.toContain(SUBJECT_TO_CONFIRMATION);
+    expect(text).not.toContain("HP-7K2M-9QXD-4TRA");
+  });
+
+  it("points the QR at the public verify page", () => {
+    expect(receiptVerifyUrl("HP-7K2M-9QXD-4TRA")).toBe(
+      "https://hostelpalika.com/verify-receipt?code=HP-7K2M-9QXD-4TRA",
+    );
   });
 });

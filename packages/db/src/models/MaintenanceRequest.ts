@@ -52,6 +52,12 @@ const maintenanceRequestSchema = new Schema(
       enum: ["PENDING", "CONTACTED", "SCHEDULED", "COMPLETED", "CANCELLED"],
       type: String,
     },
+    /**
+     * The trade's minimum fee (whole NPR) at the moment the request was raised.
+     * Frozen here so a later change to the hostel's rate card never alters what
+     * a provider was shown when they accepted the job.
+     */
+    minimumCharge: { min: 0, type: Number },
     scheduledFor: Date,
     completedAt: Date,
     costNote: { trim: true, type: String },
@@ -68,6 +74,8 @@ const maintenanceRequestSchema = new Schema(
 
 maintenanceRequestSchema.index({ hostelId: 1, status: 1, category: 1 });
 maintenanceRequestSchema.index({ hostelId: 1, providerId: 1, createdAt: -1 });
+// The provider job board: every unassigned PENDING request, newest first.
+maintenanceRequestSchema.index({ status: 1, providerId: 1, createdAt: -1 });
 
 export const MaintenanceRequestModel =
   models.MaintenanceRequest || model("MaintenanceRequest", maintenanceRequestSchema);

@@ -7,14 +7,14 @@ export function verificationEmail(input: {
 }): EmailContent {
   return {
     category: "security",
-    subject: "Verify your email address",
+    subject: "Please check your email",
     html: emailLayout({
-      heading: "Verify your email",
+      heading: "Check your email",
       bodyHtml: [
-        paragraph(`Welcome to ${PLATFORM_NAME}! Confirm your email address to activate your account.`),
-        ctaButton(input.verifyUrl, "Verify email"),
+        paragraph(`Welcome to ${PLATFORM_NAME}! Tap the button to start your account.`),
+        ctaButton(input.verifyUrl, "Yes, this is my email"),
         paragraph(
-          `This link expires in ${input.expiresInHours} hours. If it has expired, request a new verification email from the login page.`,
+          `This link works for ${input.expiresInHours} hours. If it stops working, ask for a new one on the login page.`,
         ),
       ].join("\n"),
     }),

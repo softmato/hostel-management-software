@@ -12,8 +12,10 @@ import {
 import { copyReference } from "@/components/resident-payments";
 import { AppBar } from "@/components/ui/app-bar";
 import { Card, SectionHeader } from "@/components/ui/card";
+import { Grid, InfoTile } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Screen } from "@/components/ui/screen";
+import { Sheet } from "@/components/ui/sheet";
 import { Skeleton, SkeletonCard } from "@/components/ui/skeleton";
 import { EmptyState, FailureState } from "@/components/ui/states";
 import { Text } from "@/components/ui/text";
@@ -33,85 +35,70 @@ import {
   activeCodes,
   type CertifiedReceipt,
   certifiedReceipts,
-  offerProgramStats,
 } from "@/lib/offer-program";
+import {
+  type OfferAward,
+  type OfferPerk,
+  perkTerms,
+  type ResidentOfferProgram,
+} from "@/lib/offer-program-api";
 import { residentQuery } from "@/lib/resident-queries";
 import { toastError } from "@/lib/toast";
 
 /**
- * Certified receipts — the resident's own view of the Offer Program.
+ * The resident's Offer Program — this quarter, offers, perks, receipts.
  *
- * ## Why this is not part of Payments
+ * ## Two reads, split by who owns the fact
  *
- * The web page's header makes the argument and it holds on a phone too: Payments
- * answers *what do I owe and how do I pay it*, and everything on it is arranged
- * around a due date. The questions here are different in kind — which code is
- * live for me, how much of what I paid was matched, where are my receipts — and
- * are usually asked when no money is due. Folding them into Payments buries them
- * under a balance.
+ * Codes and receipts come from the payments payload, as they always have, so
+ * this screen and the Payments tab cannot disagree about the same money. The
+ * programme endpoint adds only what it alone knows: this quarter's certified
+ * total, the perk catalogue, and what the resident has been given.
  *
- * ## It reads the payments endpoint, and there is no second one
+ * ## Why the title changed back
  *
- * Every figure is a rearrangement of what `getFinanceView()` already returns. A
- * dedicated endpoint would be a second chance for two screens to disagree about
- * the same resident's money, which is the failure this product can least afford.
+ * It was `Certified receipts`, because receipts were the only thing here and
+ * "Offer Program" named a scheme rather than an object. The screen now holds
+ * the programme itself — perks and offers — and the payment-verified email
+ * sends people to "Offer Program" in the app, so the bar says that.
  *
- * ## The screen is named after what people come here for
+ * ## Layout
  *
- * It was titled `Offer Program`, which is the *scheme's* name and not the
- * object anybody is looking for. A resident opening this screen wants a receipt
- * — for a landlord, a visa application, a parent — and "Offer Program" is a
- * phrase they would have to have learnt in order to know it is where receipts
- * live. The bar says `Certified receipts` and the Payments tab's door says the
- * same thing, so the label a person taps is the label of the place they land.
- *
- * ## Three tiles became two facts
- *
- * A `<Grid>` of three `<StatTile>`s stood above the codes: `Certified` (a
- * count), `Amount` (a total) and `In review` (another count). Two of the three
- * were counts of rows that were already listed below them, which is a metric
- * strip counting a list on the same screen as the list.
- *
- * What survives is the one comparison a resident cannot make for themselves:
- * **matched & verified** against **total paid**. The gap between those two
- * numbers is money they have handed over that has no receipt behind it, and it
- * is the only thing on this screen that could prompt them to go and chase
- * something.
- *
- * ## What is fixed here rather than ported
- *
- * The web filters active codes on `["OPEN", "PARTIAL", "OVERDUE"]` and so hides
- * the reference code for an **`UNPAID`** month — the ordinary state of a month
- * nobody has paid yet, and precisely the invoice somebody opening this screen is
- * about to pay. `lib/offer-program.ts` uses `isOpenInvoice`, which holds the same
- * five statuses the server's own `buildFeeSummary` sums.
- *
- * The web also prints `invoice.month` raw, which renders `null` for an admission
- * fee — `Invoice.period` is nullable and one-off invoices have no month. Here it
- * goes through `formatPeriod`.
+ * The painted block is the quarter's certified total — the number the
+ * programme is judged on. The card straddling it is the code to quote, because
+ * that is the one action that earns the next certified receipt and the string a
+ * resident copies while a banking app is open. Perks are an icon-tile grid;
+ * tapping one opens a sheet with the detail.
  */
 
 /** Matches the Payments tab's card and the invoice header's block. */
 const STRADDLE = 22;
 
-export default function MyOfferProgramScreen() {
-  const query = residentQuery.finance();
-  const finance = useResource<ResidentFinanceView>(query.load, {
-    cacheKey: query.key,
-    topics: query.topics,
+export default function OfferProgramScreen() {
+  const financeQuery = residentQuery.finance();
+  const finance = useResource<ResidentFinanceView>(financeQuery.load, {
+    cacheKey: financeQuery.key,
+    topics: financeQuery.topics,
+  });
+  const programmeQuery = residentQuery.offerProgram();
+  const programme = useResource<ResidentOfferProgram>(programmeQuery.load, {
+    cacheKey: programmeQuery.key,
+    topics: programmeQuery.topics,
   });
 
-  const header = <AppBar showBack title="Certified receipts" />;
+  const [perk, setPerk] = useState<OfferPerk | null>(null);
 
-  if (finance.loading) {
+  const header = <AppBar showBack title="Offer Program" />;
+
+  if (finance.loading || programme.loading) {
     return (
       <Screen header={header} padded={false} scroll>
         <View className="px-5">
-          <Skeleton height={96} radius={20} />
+          <Skeleton height={104} radius={20} />
         </View>
 
         <View className="px-5" style={{ marginTop: -STRADDLE }}>
-          <Skeleton height={132} radius={18} />
+          <Skeleton height={96} radius={18} />
         </View>
 
         <View className="gap-3 px-5 pt-6">
@@ -122,13 +109,16 @@ export default function MyOfferProgramScreen() {
     );
   }
 
-  if (finance.error || !finance.data) {
+  if (finance.error || !finance.data || programme.error || !programme.data) {
     return (
       <Screen header={header}>
         <FailureState
-          message={finance.error ?? "Your receipts could not be loaded."}
-          onRetry={finance.reload}
-          title="Couldn't load receipts"
+          message={finance.error ?? programme.error ?? "Your Offer Program could not be loaded."}
+          onRetry={() => {
+            finance.reload();
+            programme.reload();
+          }}
+          title="Couldn't load Offer Program"
         />
       </Screen>
     );
@@ -136,21 +126,67 @@ export default function MyOfferProgramScreen() {
 
   const codes = activeCodes(finance.data.invoices);
   const receipts = certifiedReceipts(finance.data.invoices);
-  const stats = offerProgramStats(finance.data);
+  const { awards, perks, quarter } = programme.data;
 
   return (
     <Screen
       header={header}
-      onRefresh={finance.refresh}
+      onRefresh={() => {
+        finance.refresh();
+        programme.refresh();
+      }}
       padded={false}
-      refreshing={finance.refreshing}
+      refreshing={finance.refreshing || programme.refreshing}
       scroll
     >
-      <ActiveCodesBlock codes={codes} />
+      <QuarterBlock quarter={quarter} />
 
-      <TotalsCard certified={stats.certifiedAmount} paid={stats.totalPaid} />
+      <CodesCard codes={codes} />
 
       <View className="gap-5 px-5 pt-6">
+        {awards.length > 0 ? (
+          <View>
+            <SectionHeader title="Your offers" />
+            <Card padding="px-4 py-1">
+              {awards.map((award, index) => (
+                <View key={award.id}>
+                  {index > 0 ? <RowDivider /> : null}
+                  <AwardRow award={award} />
+                </View>
+              ))}
+            </Card>
+          </View>
+        ) : null}
+
+        <View>
+          <SectionHeader
+            subtitle="Given each quarter to residents with certified receipts"
+            title="Perks"
+          />
+          {perks.length === 0 ? (
+            <Card>
+              <EmptyState
+                compact
+                description="Keep paying with your reference code."
+                icon="gift-outline"
+                title="Perks are on their way"
+              />
+            </Card>
+          ) : (
+            <Grid maxColumns={3} minCellWidth={100}>
+              {perks.map((item) => (
+                <InfoTile
+                  caption={item.kind === "FEE_OFF" ? `${item.percentOff}% off` : "Gift"}
+                  icon={item.kind === "FEE_OFF" ? "pricetag-outline" : "gift-outline"}
+                  key={item.id}
+                  label={item.title}
+                  onPress={() => setPerk(item)}
+                />
+              ))}
+            </Grid>
+          )}
+        </View>
+
         <View>
           <SectionHeader
             subtitle={receipts.length === 1 ? "1 receipt" : `${receipts.length} receipts`}
@@ -178,22 +214,14 @@ export default function MyOfferProgramScreen() {
           )}
         </View>
 
-        {/*
-          Two facts about receipts that a resident only needs at the moment they
-          are holding one, which is this screen and nowhere else.
-
-          The second is said here as well as on the public page, because this is
-          where a receipt is downloaded from — and that is the moment somebody is
-          most likely to try re-uploading one as proof of a payment.
-        */}
         <Card className="gap-2">
           <Text variant="caption">
-            Receipts are issued only for matched and verified payments.
+            A receipt is certified when your payment had its reference code and was
+            verified. Anyone can check one at hostelpalika.com/verify-receipt.
           </Text>
           <Text variant="caption">
-            A receipt is your hostel&rsquo;s record that they were paid. It cannot be
-            uploaded back as proof of a payment — for that, use the confirmation from
-            the app or bank you paid with.
+            A receipt cannot be uploaded back as proof of a payment — for that, use the
+            confirmation from the app or bank you paid with.
           </Text>
         </Card>
 
@@ -208,37 +236,30 @@ export default function MyOfferProgramScreen() {
           </Text>
         </Pressable>
       </View>
+
+      <Sheet onClose={() => setPerk(null)} open={perk !== null} title={perk?.title ?? "Perk"}>
+        {perk ? (
+          <View className="gap-3 pb-2">
+            <Text variant="label">{perkTerms(perk)}</Text>
+            <Text variant="caption">
+              {[`From ${perk.partner}`, perk.giftValue ? `worth ${formatMoney(perk.giftValue)}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
+            {perk.description ? <Text>{perk.description}</Text> : null}
+            <Text variant="caption">
+              Pay every bill with its reference code. At the end of each quarter
+              HostelPalika gives perks to residents with certified receipts.
+            </Text>
+          </View>
+        ) : null}
+      </Sheet>
     </Screen>
   );
 }
 
-/**
- * The codes still worth quoting, painted.
- *
- * ## Why the codes are the header
- *
- * They were a `<SectionHeader>` and a stack of `<CodeCard>`s two thirds of the
- * way down, under three metric tiles and a paragraph about the programme. That
- * is the wrong depth for the one string on this screen somebody might be
- * copying while a banking app is open in front of them.
- *
- * On the paint they are the first thing read, and the block is the same object
- * the invoice detail screen uses for its identity — a bled accent panel with
- * rounded bottom corners and a card straddling it (`NOTES.md` §1). The three
- * payments screens now share one chrome.
- *
- * ## Every code copies on tap
- *
- * Copying matters more here than anywhere else in the app: the code goes into a
- * bank's remarks field on the same phone, and a resident retyping `RUP-4821-K`
- * by eye is how a payment ends up quoting a code that does not validate. The
- * check character catches the typo, but only after the money has moved.
- *
- * A resident two months behind has two live codes, so this is a list rather
- * than a single value — but the common case is one, and the common case gets
- * the whole width.
- */
-function ActiveCodesBlock({ codes }: { codes: ResidentInvoice[] }) {
+/** The quarter's certified total, painted — rounded bottom corners, card straddling. */
+function QuarterBlock({ quarter }: { quarter: ResidentOfferProgram["quarter"] }) {
   const paint = usePortalPaint();
 
   return (
@@ -259,35 +280,50 @@ function ActiveCodesBlock({ codes }: { codes: ResidentInvoice[] }) {
         />
       </View>
 
-      <View className="gap-2 px-5 pt-4" style={{ paddingBottom: STRADDLE + 14 }}>
+      <View className="gap-1 px-5 pt-4" style={{ paddingBottom: STRADDLE + 14 }}>
         <Text
           className="font-semibold uppercase tracking-wider"
           numberOfLines={1}
           style={{ color: "rgba(255,255,255,0.7)", fontSize: 10 }}
         >
-          {codes.length === 1 ? "Active reference code" : "Active reference codes"}
+          {`This quarter · ${quarter.label}`}
         </Text>
-
-        {codes.length === 0 ? (
-          /*
-            Not an empty state with a disc and a heading — this is a header, and
-            a header that grows a 56-point circle when a resident is paid up is
-            a header that changes height for good news. One line, same slot.
-          */
-          <Text style={{ color: "rgba(255,255,255,0.88)", fontSize: 14 }}>
-            Nothing is due right now, so there is no code to quote.
-          </Text>
-        ) : (
-          codes.map((invoice) => <CodeLine invoice={invoice} key={invoice.id} />)
-        )}
+        <PaintedAmount size={30} value={formatMoney(quarter.certifiedAmount)} />
+        <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 13 }}>
+          {quarter.certifiedCount === 1
+            ? "1 certified payment"
+            : `${quarter.certifiedCount} certified payments`}
+        </Text>
       </View>
     </LinearGradient>
   );
 }
 
+/**
+ * The code to quote, straddling the block. Every code copies on tap — it goes
+ * into a bank's remarks field on the same phone, and retyping it by eye is how
+ * a payment ends up quoting a code that does not validate.
+ */
+function CodesCard({ codes }: { codes: ResidentInvoice[] }) {
+  return (
+    <View className="px-5" style={{ marginTop: -STRADDLE }}>
+      <View className="gap-3 rounded-[18px] border border-border bg-card p-4" style={FLOAT_SHADOW}>
+        <Text variant="caption">
+          {codes.length === 0
+            ? "Nothing is due right now, so there is no code to quote."
+            : "Put this code in the remarks when you pay"}
+        </Text>
+        {codes.map((invoice) => (
+          <CodeLine invoice={invoice} key={invoice.id} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function CodeLine({ invoice }: { invoice: ResidentInvoice }) {
   const dates = useDates();
-
+  const { colors } = useAppTheme();
   const code = invoice.referenceCode;
 
   if (!code) {
@@ -304,60 +340,63 @@ function CodeLine({ invoice }: { invoice: ResidentInvoice }) {
       onPress={() => copyReference(code)}
     >
       <View className="flex-1 gap-0.5">
-        <PaintedAmount size={22} value={code} />
-        <Text
-          numberOfLines={1}
-          style={{ color: "rgba(255,255,255,0.72)", fontSize: 11 }}
-        >
+        <Text className="font-semibold tracking-wider text-primary" variant="title">
+          {code}
+        </Text>
+        <Text numberOfLines={1} variant="caption">
           {`For ${oneOffLabel(invoice) ?? dates.period(invoice.month)}`}
         </Text>
       </View>
-
-      <Ionicons color="rgba(255,255,255,0.9)" name="copy-outline" size={20} />
+      <Ionicons color={colors.primary} name="copy-outline" size={20} />
     </Pressable>
   );
 }
 
-/**
- * Matched and verified, against everything paid.
- *
- * Two figures, one above the other with a rule between, and the certified one
- * leading in the success tone — it is the number the screen is named after. The
- * caption under each says what it counts, because "Rs 9,000" and "Rs 10,200" on
- * one card with no explanation is an invitation to assume the difference is a
- * mistake.
- */
-function TotalsCard({ certified, paid }: { certified: number; paid: number }) {
-  return (
-    <View className="px-5" style={{ marginTop: -STRADDLE }}>
-      <View
-        className="gap-3 rounded-[18px] border border-border bg-card p-4"
-        style={FLOAT_SHADOW}
-      >
-        <View className="gap-0.5">
-          <Text variant="caption">Matched &amp; verified</Text>
-          <Text className="text-success" variant="title">
-            {formatMoney(certified)}
-          </Text>
-          <Text variant="caption">Total matched payments</Text>
-        </View>
+function Glyph({
+  certified,
+  name,
+}: {
+  certified: boolean;
+  name: keyof typeof Ionicons.glyphMap;
+}) {
+  const { colors } = useAppTheme();
 
-        <View className="gap-0.5 border-t border-border pt-3">
-          <Text variant="caption">Total paid</Text>
-          <Text variant="label">{formatMoney(paid)}</Text>
-          <Text variant="caption">Includes unverified &amp; pending</Text>
-        </View>
-      </View>
+  return (
+    <View
+      className={`h-8 w-8 items-center justify-center rounded-full ${certified ? "bg-success-soft" : "bg-muted"}`}
+    >
+      <Ionicons
+        color={certified ? colors.success : colors.mutedForeground}
+        name={name}
+        size={18}
+      />
     </View>
   );
 }
 
+function AwardRow({ award }: { award: OfferAward }) {
+  const state =
+    award.status === "APPLIED"
+      ? `${formatMoney(award.appliedAmount ?? 0)} paid on your ${award.appliedPeriod ?? "bill"}`
+      : award.status === "DELIVERED"
+        ? "Delivered"
+        : award.kind === "FEE_OFF"
+          ? "Comes off your next monthly fee"
+          : "Our team will contact you";
+
+  return (
+    <ListRow
+      left={<Glyph certified name={award.kind === "FEE_OFF" ? "pricetag-outline" : "gift-outline"} />}
+      subtitle={`${award.quarterLabel} · ${state}`}
+      title={award.title}
+    />
+  );
+}
+
 /**
- * The receipt number is the title, not the month.
- *
- * There is one receipt per *payment*, so a month somebody part-paid has several
- * and only the number tells them apart — the web's own comment makes the point
- * and it is even more true on a narrow row.
+ * The receipt number is the title — one receipt per *payment*, so a month
+ * somebody part-paid has several and only the number tells them apart. A
+ * certified one gets the green check.
  */
 function ReceiptRow({ receipt }: { receipt: CertifiedReceipt }) {
   const dates = useDates();
@@ -369,12 +408,7 @@ function ReceiptRow({ receipt }: { receipt: CertifiedReceipt }) {
     setBusy(true);
 
     try {
-      /*
-        The global downloader — no share sheet, no per-screen spinner, no
-        permission prompt; progress goes to the global toaster and the shade.
-        `fileName` carries no extension, which `downloadToDevice` appends from
-        `extension` after checking the bytes really are a PDF.
-      */
+      // The global downloader — progress goes to the toaster and the shade.
       await downloadToDevice({
         extension: "pdf",
         fileName: `receipt-${receipt.number}`,
@@ -391,14 +425,14 @@ function ReceiptRow({ receipt }: { receipt: CertifiedReceipt }) {
 
   return (
     <ListRow
+      left={
+        <Glyph
+          certified={Boolean(receipt.certificationCode)}
+          name={receipt.certificationCode ? "shield-checkmark-outline" : "receipt-outline"}
+        />
+      }
       onPress={() => void save()}
       right={
-        /*
-          The download glyph on the right, where the chevron would be. A
-          `<ListRow>` draws its own chevron for a row that navigates, and this
-          row does not navigate — it produces a file. An arrow pointing right on
-          a row that opens nothing is the wrong promise.
-        */
         <Ionicons
           color={busy ? colors.mutedForeground : colors.primary}
           name={busy ? "hourglass-outline" : "download-outline"}
@@ -409,6 +443,7 @@ function ReceiptRow({ receipt }: { receipt: CertifiedReceipt }) {
         [
           formatMoney(receipt.amount),
           receipt.issuedAt ? dates.date(receipt.issuedAt) : null,
+          receipt.certificationCode ? "Certified" : null,
         ]
           .filter(Boolean)
           .join(" · ") || undefined

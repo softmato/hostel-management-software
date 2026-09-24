@@ -8,20 +8,20 @@ export function complaintResolvedEmail(input: {
 }): EmailContent {
   return {
     category: "support",
-    subject: `Complaint resolved: ${input.title} — ${input.hostelName}`,
+    subject: `Your complaint is fixed: ${input.title} — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Complaint resolved",
+      heading: "Your complaint is fixed",
       bodyHtml: [
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> marked your complaint <strong>${escapeHtml(input.title)}</strong> as resolved.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> says your complaint <strong>${escapeHtml(input.title)}</strong> is fixed.`,
         ),
         input.response
           ? paragraph(`What they did: “${escapeHtml(input.response)}”`)
           : "",
         paragraph(
-          "If the problem is genuinely fixed, confirm it from your portal so the hostel can close it out. If it is not, reopen the thread and tell them.",
+          "Is it really fixed? Tap below to say yes. If not, open it again and tell them.",
         ),
-        ctaButton(input.complaintsUrl, "Confirm the resolution"),
+        ctaButton(input.complaintsUrl, "Yes, it is fixed"),
       ]
         .filter(Boolean)
         .join("\n"),

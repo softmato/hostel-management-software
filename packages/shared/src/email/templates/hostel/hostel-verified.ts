@@ -46,39 +46,39 @@ export function hostelVerifiedEmail(input: {
 
   return {
     category: "info",
-    subject: `Verified — ${input.hostelName} is ready to go live`,
+    subject: `Good news! ${input.hostelName} is checked and ready`,
     html: emailLayout({
-      heading: "Your details are verified",
+      heading: "Your details are OK",
       bodyHtml: [
         paragraph(greeting),
         paragraph(
-          `We have finished checking the details and documents for <strong>${escapeHtml(input.hostelName)}</strong>. Everything is in order.`,
+          `We checked the details and documents for <strong>${escapeHtml(input.hostelName)}</strong>. Everything is OK.`,
         ),
         input.selectedPlanName
           ? paragraph(
-              `You already chose <strong>${escapeHtml(input.selectedPlanName)}</strong> while you were waiting, so there is just one step left — pay for it, and your listing goes live immediately.`,
+              `You chose <strong>${escapeHtml(input.selectedPlanName)}</strong>. One step left: pay for it, and your hostel goes online.`,
             )
           : paragraph(
-              "The last step is choosing a plan. Pick the one that suits you, pay for it, and your listing goes live immediately.",
+              "One step left: choose a plan and pay. Then your hostel goes online.",
             ),
         input.portalOpensOnPayment
           ? paragraph(
-              "Your hostel portal opens as soon as the payment is complete. We will email you the moment it does.",
+              "Your hostel app opens after you pay. We will email you.",
             )
           : "",
         input.credentials
           ? [
-              paragraph("Sign in with these details to pay:"),
+              paragraph("Log in with these details to pay:"),
               detailsTable([
                 { label: "Email", value: input.credentials.email },
-                { label: "Temporary password", value: input.credentials.temporaryPassword },
+                { label: "Password", value: input.credentials.temporaryPassword },
               ]),
-              smallPrint("You will be asked to choose your own password after you sign in."),
+              smallPrint("After you log in, you will set your own password."),
             ].join("\n")
           : "",
         ctaButton(
           input.statusUrl,
-          input.selectedPlanName ? "Pay and go live" : "Choose your plan",
+          input.selectedPlanName ? "Pay now" : "Choose a plan",
         ),
       ]
         .filter(Boolean)

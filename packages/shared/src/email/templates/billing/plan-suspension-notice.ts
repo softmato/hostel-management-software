@@ -33,26 +33,26 @@ export function planSuspensionNoticeEmail(input: {
 
   return {
     category: "billing",
-    subject: `Pay your plan by ${input.payBy} — ${input.hostelName}`,
+    subject: `Please pay your hostel plan fee by ${input.payBy} — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your plan is unpaid",
+      heading: "Your plan fee is not paid",
       bodyHtml: [
         greeting(input.ownerName),
         paragraph(
-          `<strong>${escapeHtml(input.hostelName)}</strong> has not paid its plan. <strong>${escapeHtml(amount)}</strong> is outstanding.`,
+          `<strong>${escapeHtml(input.hostelName)}</strong> has not paid the plan fee. You need to pay <strong>${escapeHtml(amount)}</strong>.`,
         ),
         paragraph(
-          `Please pay by <strong>${escapeHtml(input.payBy)}</strong>. If it is not paid by then, the hostel portal stops working for you, your wardens, your residents, their guardians and your cooks until it is.`,
+          `Please pay by <strong>${escapeHtml(input.payBy)}</strong>. If not, the app will stop working for you, your wardens, residents, guardians and cooks until you pay.`,
         ),
         detailsTable([
-          { label: "Invoice", value: input.invoiceNumber },
+          { label: "Bill no.", value: input.invoiceNumber },
           { label: "Plan", value: input.planName },
-          { emphasis: true, label: "Amount due", value: amount },
+          { emphasis: true, label: "To pay", value: amount },
           { label: "Pay by", value: input.payBy },
         ]),
         ctaButton(input.payUrl, "Pay now"),
         smallPrint(
-          `${input.invoiceAttached ? "The invoice is attached. " : ""}The portal opens again by itself as soon as the payment is confirmed.`,
+          `${input.invoiceAttached ? "The bill is attached. " : ""}The app works again as soon as we get your payment.`,
         ),
       ].join("\n"),
     }),

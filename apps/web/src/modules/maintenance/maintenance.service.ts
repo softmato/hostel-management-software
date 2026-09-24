@@ -20,6 +20,7 @@ import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { MaintenanceRequestModel } from "@hostel/db/models/MaintenanceRequest";
 import { ServiceProviderModel } from "@hostel/db/models/ServiceProvider";
+import { maintenanceCategorySchema } from "@/modules/maintenance/maintenance.validation";
 import type {
   maintenanceCommentCreateSchema,
   maintenanceRequestCreateSchema,
@@ -51,6 +52,7 @@ type MaintenanceRequestRecord = {
   createdAt?: Date;
   description?: string;
   hostelId: Types.ObjectId;
+  minimumCharge?: number;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   providerId?: Types.ObjectId;
   remarks?: string;
@@ -186,6 +188,7 @@ function serializeMaintenanceRequest(
     history: (options.history ?? []).map(serializeHistory),
     hostelId: request.hostelId.toString(),
     id: request._id.toString(),
+    minimumCharge: request.minimumCharge ?? null,
     priority: request.priority,
     providerId: request.providerId?.toString(),
     remarks: request.remarks ?? "",
@@ -413,9 +416,11 @@ export async function createMaintenanceRequest(
   const hostelId = resolveAdminHostelId(principal, input.hostelId);
   const providerId = await assertProviderApproved(input.providerId);
   const voiceNoteAssetId = await assertVoiceNoteUsable(input.voiceNoteAssetId, hostelId);
+  const minimumCharge = await minimumChargeFor(hostelId, input.category);
   const request = (await MaintenanceRequestModel.create({
     category: input.category,
     costNote: input.costNote,
+    minimumCharge,
     createdBy: principal.userId,
     description: input.description,
     hostelId,
@@ -734,23 +739,33 @@ export async function addMaintenanceComment(
 export type MinimumCharge = { amount: number; category: string };
 
 /**
- * The hostel's agreed minimum charges, one per trade.
- *
- * ## Absent is not zero
- *
- * A category with no agreed rate is **missing from the array**, and every reader
- * has to treat that as "we have not agreed one" rather than as free. The
- * temptation is to return all eleven categories with the unset ones at zero,
- * which reads on a screen as `NPR 0` — a hostel telling somebody the electrician
- * costs nothing.
- *
- * ## Empty is the honest first answer
- *
- * A hostel that has never opened this screen has no charges, and the mobile
- * confirm step says so rather than inventing a platform-wide default. A number
- * nobody agreed to is worse than an admitted blank on the one screen whose job
- * is to say what this will cost.
+ * Every trade's minimum fee until the hostel sets its own (owner's call,
+ * 2026-09-24). A stored row overrides it; clearing a row falls back to this.
  */
+export const DEFAULT_MINIMUM_CHARGE = 200;
+
+/** All eleven trades, each with the hostel's own rate or the default. */
+async function resolveMinimumCharges(hostelId: Types.ObjectId): Promise<MinimumCharge[]> {
+  const settings = await HostelSettingsModel.findOne({ hostelId })
+    .select("maintenance")
+    .lean<{ maintenance?: { minimumCharges?: MinimumCharge[] } } | null>();
+  const stored = new Map(
+    (settings?.maintenance?.minimumCharges ?? []).map((row) => [row.category, row.amount]),
+  );
+
+  return maintenanceCategorySchema.options.map((category) => ({
+    amount: stored.get(category) ?? DEFAULT_MINIMUM_CHARGE,
+    category,
+  }));
+}
+
+async function minimumChargeFor(hostelId: Types.ObjectId, category: string) {
+  const charges = await resolveMinimumCharges(hostelId);
+
+  return charges.find((row) => row.category === category)?.amount ?? DEFAULT_MINIMUM_CHARGE;
+}
+
+/** The hostel's minimum fee per trade — always all eleven, never blank. */
 export async function getMaintenanceSettings(
   principal: ApiPrincipal,
   requestedHostelId?: string,
@@ -759,16 +774,9 @@ export async function getMaintenanceSettings(
 
   const hostelId = resolveAdminHostelId(principal, requestedHostelId);
 
-  const settings = await HostelSettingsModel.findOne({ hostelId })
-    .select("maintenance")
-    .lean<{ maintenance?: { minimumCharges?: MinimumCharge[] } } | null>();
-
   return {
     hostelId: hostelId.toString(),
-    minimumCharges: (settings?.maintenance?.minimumCharges ?? []).map((row) => ({
-      amount: row.amount,
-      category: row.category,
-    })),
+    minimumCharges: await resolveMinimumCharges(hostelId),
   };
 }
 

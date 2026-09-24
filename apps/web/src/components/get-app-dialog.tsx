@@ -29,10 +29,15 @@ type Platform = "android" | "ios";
 export function GetAppDialog({
   className,
   comingSoon = false,
+  open,
+  onOpenChange,
 }: {
   className?: string;
   /** Portal users: no QR, just "coming soon" and how to install the web app now. */
   comingSoon?: boolean;
+  /** Controlled from a menu item: no trigger button of its own. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [platform, setPlatform] = useState<Platform>("android");
   const [qr, setQr] = useState({ data: "", url: "" });
@@ -68,7 +73,8 @@ export function GetAppDialog({
   );
 
   return (
-    <Dialog>
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      {open === undefined ? (
       <DialogTrigger asChild>
         <button
           className={cn(
@@ -80,6 +86,7 @@ export function GetAppDialog({
           <Smartphone className="size-4" /> Get the app
         </button>
       </DialogTrigger>
+      ) : null}
       <DialogContent className="sm:max-w-sm">
         {comingSoon ? (
           <>

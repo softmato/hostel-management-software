@@ -23,21 +23,21 @@ export function paymentOverdueEmail(input: {
 
   return {
     category: "alert",
-    subject: `Payment overdue — ${monthName(input.month)} · ${input.hostelName}`,
+    subject: `Please pay your hostel fee — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your hostel fee is overdue",
+      heading: "Your hostel fee is late",
       urgent: true,
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(monthName(input.month))}</strong> fee at ${escapeHtml(input.hostelName)} is <strong>${input.daysOverdue} ${dayLabel}</strong> past its due date.`,
+          `Hi ${escapeHtml(input.residentName)}, your <strong>${escapeHtml(monthName(input.month))}</strong> fee at ${escapeHtml(input.hostelName)} is <strong>${input.daysOverdue} ${dayLabel}</strong> late. Please pay now.`,
         ),
         paragraph(
-          `Amount due: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Due date was: <strong>${escapeHtml(emailDate(input.dueDate) ?? "")}</strong>`,
+          `To pay: <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong><br/>Last date was: <strong>${escapeHtml(emailDate(input.dueDate) ?? "")}</strong>`,
         ),
         paragraph(
-          "If you have already paid, upload your payment proof so the record can be verified and closed.",
+          "Already paid? Send a photo of the payment so the hostel can check it.",
         ),
-        ctaButton(input.paymentsUrl, "Upload payment proof"),
+        ctaButton(input.paymentsUrl, "Send payment photo"),
       ].join("\n"),
     }),
   };

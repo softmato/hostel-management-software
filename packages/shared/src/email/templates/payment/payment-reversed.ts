@@ -24,21 +24,21 @@ export function paymentReversedEmail(input: {
 
   return {
     category: "billing",
-    subject: `Payment reversed${input.period ? ` — ${input.period}` : ""} · ${input.hostelName}`,
+    subject: `A payment was cancelled${input.period ? ` — ${input.period}` : ""} · ${input.hostelName}`,
     html: emailLayout({
-      heading: "A payment was reversed",
+      heading: "A payment was cancelled",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} has reversed a recorded payment of <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong>${forPeriod}.`,
+          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} cancelled a payment of <strong>${escapeHtml(currency)} ${input.amount.toLocaleString("en-US")}</strong>${forPeriod}.`,
         ),
-        paragraph(`Reason given: <strong>${escapeHtml(input.reason)}</strong>`),
+        paragraph(`Reason: <strong>${escapeHtml(input.reason)}</strong>`),
         paragraph(
           input.outstandingAmount > 0
-            ? `Your outstanding balance is now <strong>${escapeHtml(currency)} ${input.outstandingAmount.toLocaleString("en-US")}</strong>. Any receipt issued for this payment has been voided.`
-            : "Any receipt issued for this payment has been voided. Nothing is currently outstanding.",
+            ? `You now need to pay <strong>${escapeHtml(currency)} ${input.outstandingAmount.toLocaleString("en-US")}</strong>. The receipt for this payment is cancelled.`
+            : "The receipt for this payment is cancelled. You have nothing to pay now.",
         ),
         paragraph(
-          "If this looks wrong, contact your hostel — reversals are recorded and can be traced.",
+          "Think this is wrong? Talk to your hostel.",
         ),
         ctaButton(input.paymentsUrl, "View payments"),
       ].join("\n"),

@@ -291,6 +291,9 @@ export async function notifyGatewayUnhealthy(input: {
 /**
  * Tell the resident what happened to their claim (target §11.4).
  *
+ * Also the "verified" email for an eSewa/Khalti checkout, where the provider
+ * verified the payment instead of a warden — one email for one fact.
+ *
  * Same shape as the reversal notice below and for the same reason: the in-app
  * message is outside the email switch. A hostel with email off used to verify a
  * payment and tell the resident nothing at all (item 0.6).
@@ -301,6 +304,8 @@ export async function notifyClaimReviewed(input: {
   outcome:
     | {
         kind: "verified";
+        /** Set when the receipt went into the Resident Offer Program. */
+        certificationCode?: string | null;
         /** How the money arrived, for the owner's confirmation. */
         method?: string;
         /**
@@ -346,8 +351,12 @@ export async function notifyClaimReviewed(input: {
       actionUrl: "/resident/payments",
       body:
         input.outcome.kind === "verified"
-          ? `Your payment for ${period} was verified.${
-              input.outcome.receiptNumber ? ` Receipt ${input.outcome.receiptNumber}.` : ""
+          ? `Your payment for ${period} is verified.${
+              input.outcome.certificationCode
+                ? " Your receipt was added to the Resident Offer Program."
+                : input.outcome.receiptNumber
+                  ? ` Receipt ${input.outcome.receiptNumber}.`
+                  : ""
             }`
           : `Your payment proof for ${period} was not accepted: ${input.outcome.rejectionReason}`,
       category: "PAYMENT",
@@ -385,8 +394,10 @@ export async function notifyClaimReviewed(input: {
     input.outcome.kind === "verified"
       ? paymentVerifiedEmail({
           amount: input.outcome.verifiedAmount,
+          certificationCode: input.outcome.certificationCode ?? null,
           hostelName,
           month: input.period ?? "",
+          offerProgramUrl: appUrl("/resident/offer-program"),
           paymentsUrl: appUrl("/resident/payments"),
           receiptNumber: input.outcome.receiptNumber ?? "",
           remainingAmount: input.outcome.remainingAmount,

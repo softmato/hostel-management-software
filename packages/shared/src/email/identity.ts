@@ -58,7 +58,7 @@ export const DEFAULT_MAILBOXES: Record<EmailCategory, string> = {
  * they are the product speaking as itself.
  */
 const NAME_SUFFIX: Record<EmailCategory, string> = {
-  alert: "Alerts",
+  alert: "",
   billing: "Billing",
   info: "",
   noreply: "",

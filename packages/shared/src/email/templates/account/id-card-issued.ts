@@ -24,16 +24,16 @@ export function idCardIssuedEmail(input: {
       siteName: input.siteName,
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.holderName)}, your <strong>${escapeHtml(card)}</strong> is attached to this email as a PNG — front and back.`,
+          `Hi ${escapeHtml(input.holderName)}, your <strong>${escapeHtml(card)}</strong> is attached to this email (front and back).`,
         ),
         paragraph(
-          `Your ID stays the same wherever you use it:<br/><strong style="font-size:22px;letter-spacing:3px;">${escapeHtml(input.residentId)}</strong>`,
+          `Your ID number:<br/><strong style="font-size:22px;letter-spacing:3px;">${escapeHtml(input.residentId)}</strong>`,
         ),
         paragraph(
-          `Save the images to your phone, or open your account on ${escapeHtml(input.siteName)} any time to view and download the card again.`,
+          `Save it on your phone. You can also download it again from your ${escapeHtml(input.siteName)} account.`,
         ),
         paragraph(
-          "Do not share the card publicly. Anyone who scans the code can look up the details you have chosen to share.",
+          "Do not post this card online. Anyone who scans it can see your shared details.",
         ),
       ].join("\n"),
     }),

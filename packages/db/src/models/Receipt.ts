@@ -38,6 +38,16 @@ const receiptSchema = new Schema(
     issuedBy: { ref: "User", default: null, type: Schema.Types.ObjectId },
     amount: { min: 0, required: true, type: Number },
 
+    /**
+     * Resident Offer Program certification. Set at issue, only when the payment
+     * quoted its invoice's reference code and the hostel (or the gateway, or the
+     * hostel's own statement) verified it. Random, not sequential: the receipt
+     * number can be guessed, this cannot, so it is what `/verify-receipt` looks
+     * up and what makes a printed receipt checkable by anyone holding it.
+     */
+    certificationCode: { default: null, trim: true, type: String, uppercase: true },
+    certifiedAt: { default: null, type: Date },
+
     voidedAt: { default: null, type: Date },
     voidedBy: { ref: "User", default: null, type: Schema.Types.ObjectId },
     voidReason: { default: null, trim: true, type: String },
@@ -57,6 +67,7 @@ const receiptSchema = new Schema(
  */
 export const FROZEN_RECEIPT_FIELDS = [
   "amount",
+  "certificationCode",
   "eventId",
   "invoiceId",
   "receiptNumber",
@@ -148,5 +159,15 @@ receiptSchema.index(
 );
 
 receiptSchema.index({ hostelId: 1, issuedAt: -1 });
+
+/** One document per code, and the quarter's eligibility scan. */
+receiptSchema.index(
+  { certificationCode: 1 },
+  { partialFilterExpression: { certificationCode: { $type: "string" } }, unique: true },
+);
+receiptSchema.index(
+  { certifiedAt: 1, residentId: 1 },
+  { partialFilterExpression: { certificationCode: { $type: "string" } } },
+);
 
 export const ReceiptModel = models.Receipt || model("Receipt", receiptSchema);

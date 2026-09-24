@@ -14,6 +14,8 @@ export const residentEndpoints = {
   nightStatus: "/api/v1/resident/night-status",
   notices: "/api/v1/resident/notices",
   payments: "/api/v1/resident/finance/invoices",
+  /** This quarter's certified total, the perk catalogue and the resident's offers. */
+  offerProgram: "/api/v1/resident/offer-program",
   /** How to pay one invoice: live checkouts, reference code, QR, bank account. */
   payInstructions: (invoiceId: string) =>
     `/api/v1/resident/finance/invoices/${invoiceId}/pay-instructions`,

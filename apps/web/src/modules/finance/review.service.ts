@@ -755,6 +755,7 @@ export async function approveClaim(
       invoiceId: claim.invoiceId?.toString() ?? null,
       outcome: {
         kind: "verified",
+        certificationCode: receipt?.certificationCode ?? null,
         method: METHOD_BY_PROVIDER[claim.provider ?? "NONE"] ?? "OTHER",
         receiptId: receipt?._id ?? null,
         receiptNumber: receipt?.receiptNumber ?? null,

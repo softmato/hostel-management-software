@@ -98,15 +98,15 @@ describe("route access", () => {
   it("gives every role a portal it may enter and portals it may not", () => {
     /*
      * The table read as a whole, because the failure this catches is a role
-     * nobody wrote a rule for. A COOK has no web portal — they work from the
-     * app — so every guarded prefix must turn them away rather than fall
-     * through, and the same holds for PUBLIC.
+     * nobody wrote a rule for. Every guarded prefix but a role's own must turn
+     * it away rather than fall through, and PUBLIC is turned away from all.
      */
     const portals = [
       "/platform/dashboard",
       "/hostel-admin/dashboard",
       "/resident/dashboard",
       "/guardian/dashboard",
+      "/cook",
     ];
 
     const allowed: Partial<Record<Role, string[]>> = {
@@ -114,7 +114,7 @@ describe("route access", () => {
       [Role.PLATFORM_MODERATOR]: ["/platform/dashboard"],
       [Role.HOSTEL_ADMIN]: ["/hostel-admin/dashboard"],
       [Role.WARDEN]: ["/hostel-admin/dashboard"],
-      [Role.COOK]: [],
+      [Role.COOK]: ["/cook"],
       [Role.RESIDENT]: ["/resident/dashboard"],
       [Role.GUARDIAN]: ["/guardian/dashboard"],
       [Role.PUBLIC]: [],

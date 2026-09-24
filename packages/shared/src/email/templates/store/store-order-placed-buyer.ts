@@ -39,12 +39,12 @@ export function storeOrderPlacedBuyerEmail(input: {
           `Subtotal: <strong>${formatNpr(input.subtotal)}</strong><br/>Delivery: <strong>${input.deliveryFee === 0 ? "Free" : formatNpr(input.deliveryFee)}</strong><br/>Total: <strong>${formatNpr(input.total)}</strong>`,
         ),
         paragraph(
-          `Cash on delivery — please keep <strong>${formatNpr(input.total)}</strong> ready for the courier.`,
+          `Pay cash when it arrives. Please keep <strong>${formatNpr(input.total)}</strong> ready.`,
         ),
         paragraph(
           `Delivery address: ${escapeHtml(input.address)}<br/>Contact: ${escapeHtml(input.contactName)} · ${escapeHtml(input.phone)}${input.note ? `<br/>Courier note: ${escapeHtml(input.note)}` : ""}`,
         ),
-        paragraph("You can cancel from the app until it ships."),
+        paragraph("You can cancel in the app until it is sent."),
         ctaButton(input.orderUrl, "Track this order"),
       ].join("\n"),
     }),

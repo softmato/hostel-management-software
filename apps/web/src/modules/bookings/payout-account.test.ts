@@ -257,7 +257,7 @@ describe("reviewHostelPayoutAccount", () => {
     const view = await reviewHostelPayoutAccount(String(hostelA._id), { approve: true }, superadmin);
 
     expect(view.status).toBe("VERIFIED");
-    expect(store.emails[0].subject).toBe("Payout account verified for Everest Boys Hostel");
+    expect(store.emails[0].subject).toBe("Your payout account is OK — Everest Boys Hostel");
   });
 
   it("needs a reason to send one back", async () => {

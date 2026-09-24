@@ -3,7 +3,7 @@ import {
   getOwnProvider,
   listProviderJobs,
   type ProviderApplication,
-  type ProviderJob,
+  type ProviderJobBoard,
 } from "@/lib/provider-api";
 import { defineQuery, prefetchQuery, type Query } from "@/lib/query-cache";
 
@@ -37,8 +37,10 @@ export const providerQuery = {
       getOwnProvider(),
     ),
 
-  jobs: (): ProviderQuery<ProviderJob[]> =>
-    defineQuery("provider:jobs", [REALTIME_TOPIC.MAINTENANCE], () => listProviderJobs()),
+  // `provider:board`, not the old `provider:jobs`: the cache is persisted, and
+  // a cold start must not hand this shape the old bare array.
+  jobs: (): ProviderQuery<ProviderJobBoard> =>
+    defineQuery("provider:board", [REALTIME_TOPIC.MAINTENANCE], () => listProviderJobs()),
 } as const;
 
 /** Warms one descriptor. Never throws, never re-asks something already fresh. */
