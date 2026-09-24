@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     return successResponse(
       result,
-      "If an account exists for that email, a reset link has been sent.",
+      "A reset link has been sent.",
     );
   } catch (error) {
     if (error instanceof AuthServiceError) {

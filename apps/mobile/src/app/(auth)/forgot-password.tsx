@@ -31,13 +31,12 @@ import { toastSuccess } from "@/lib/toast";
  * belongs in the email builder on the server, and the emailed link has to keep
  * working in a browser for every web user. Tracked in §1.
  *
- * ## The request step never says whether the address exists
+ * ## The request step says when there is no account
  *
- * `requestPasswordReset` returns `{ requested: true }` either way and only
- * sends mail when it finds an active account — deliberately, because an
- * endpoint that distinguishes the two lets anyone test whether a person has an
- * account here. So the confirmation is phrased as a conditional, matching the
- * server's own message.
+ * `requestPasswordReset` answers 404 "No HostelPalika account uses this email"
+ * (signup already reveals the same thing), 403 for a switched-off account and
+ * 502 when the mail provider refuses — each lands in `error` as the server's
+ * own message. Success means a real account was mailed.
  *
  * ## After a successful reset, they land on login
  *
@@ -206,7 +205,7 @@ export default function ForgotPasswordScreen() {
     >
       <View className="gap-6 pt-2">
         <Text variant="muted">
-          If an account exists for that address, a reset link is on its way. Open the
+          A reset link is on its way. Open the
           email, copy the link, and paste it below — or just tap it to finish in your
           browser.
         </Text>

@@ -1108,28 +1108,55 @@ export async function resendVerificationEmail(input: ResendVerificationInput) {
   return { requested: true };
 }
 
-/** Always returns success — never reveals whether the email exists. */
+/**
+ * Says plainly when no account uses the address. Hiding that bought nothing:
+ * `/signup` already answers "An account already exists for this email", and
+ * the route is rate limited. INVITED counts — an issued warden or guardian who
+ * lost the temporary-password email is exactly who needs a reset, and matching
+ * only ACTIVE skipped them while the screen still said "sent".
+ */
 export async function requestPasswordReset(input: ForgotPasswordInput) {
   await connectToDatabase();
 
   const email = normalizeEmail(input.email);
   const user = email
-    ? await UserModel.findOne({ email, isDeleted: { $ne: true }, status: "ACTIVE" })
+    ? await UserModel.findOne({ email, isDeleted: { $ne: true } })
     : null;
 
-  if (user?.email) {
-    const token = await signPurposeToken({
-      userId: String(user._id),
-      purpose: "password-reset",
-      ttlSeconds: PASSWORD_RESET_TTL_MINUTES * 60,
-      tokenVersion: user.tokenVersion ?? 0,
-    });
-    const resetUrl = `${appBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
+  if (!user?.email) {
+    throw new AuthServiceError(
+      "No HostelPalika account uses this email.",
+      "ACCOUNT_NOT_FOUND",
+      404,
+    );
+  }
 
-    await sendEmail({
-      to: user.email,
-      ...passwordResetEmail({ resetUrl, expiresInMinutes: PASSWORD_RESET_TTL_MINUTES }),
-    });
+  if (!CLAIMABLE_STATUSES.includes(user.get("status"))) {
+    throw new AuthServiceError(
+      "This account is switched off. Ask your hostel to turn it back on.",
+      "USER_INACTIVE",
+      403,
+    );
+  }
+
+  const token = await signPurposeToken({
+    userId: String(user._id),
+    purpose: "password-reset",
+    ttlSeconds: PASSWORD_RESET_TTL_MINUTES * 60,
+    tokenVersion: user.tokenVersion ?? 0,
+  });
+  const resetUrl = `${appBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
+  const result = await sendEmail({
+    to: user.email,
+    ...passwordResetEmail({ resetUrl, expiresInMinutes: PASSWORD_RESET_TTL_MINUTES }),
+  });
+
+  if (!result.sent && result.reason === "send_failed") {
+    throw new AuthServiceError(
+      "We could not send the reset email. Try again in a minute.",
+      "EMAIL_SEND_FAILED",
+      502,
+    );
   }
 
   return { requested: true };

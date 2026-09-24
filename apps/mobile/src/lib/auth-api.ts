@@ -140,11 +140,9 @@ export async function signInWithGoogle(idToken: string) {
 /**
  * Sends the reset link.
  *
- * **Always reports success.** `requestPasswordReset` looks the address up and
- * returns `{ requested: true }` whether or not an account exists — that is
- * deliberate on the server's side, because an endpoint that answers "no such
- * user" is an account-enumeration oracle. The screen must not claim to know
- * that mail was sent to a real inbox.
+ * Rejects with the server's message when no account uses the address (404),
+ * the account is switched off (403) or the mail provider refused (502), so a
+ * resolved call means a real account was mailed.
  */
 export async function forgotPassword(email: string) {
   const response = await publicApi.post<ApiEnvelope<{ requested: boolean }>>(

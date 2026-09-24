@@ -107,7 +107,7 @@ function RequestResetLink() {
     return (
       <div className="flex flex-col gap-7">
         <AuthHeading
-          subtitle="If an account exists for that address, a reset link is on its way."
+          subtitle="A reset link is on its way."
           title="Check your inbox"
         />
         <Notice>

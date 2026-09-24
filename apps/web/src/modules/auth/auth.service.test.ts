@@ -7,6 +7,7 @@ const serviceMocks = vi.hoisted(() => ({
   hashPassword: vi.fn(),
   hashToken: vi.fn((token: string) => `hash:${token}`),
   refreshTokenExpiresAt: vi.fn(() => new Date("2030-01-01T00:00:00.000Z")),
+  sendEmail: vi.fn(),
   sessionFindOne: vi.fn(),
   sessionInstances: [] as Array<Record<string, unknown>>,
   sessionSave: vi.fn(),
@@ -96,6 +97,10 @@ vi.mock("jose", () => ({
   jwtVerify: serviceMocks.jwtVerify,
 }));
 
+vi.mock("@hostel/shared/email/sender", () => ({
+  sendEmail: serviceMocks.sendEmail,
+}));
+
 vi.mock("@/modules/auth/temporary-credential.service", () => ({
   authenticateTemporaryCredential: serviceMocks.authenticateTemporaryCredential,
   isTemporaryCredentialActive: serviceMocks.isTemporaryCredentialActive,
@@ -107,6 +112,7 @@ import {
   login,
   logout,
   refreshAccessToken,
+  requestPasswordReset,
 } from "@/modules/auth/auth.service";
 
 function createUser(overrides: Record<string, unknown> = {}) {
@@ -648,6 +654,42 @@ describe("auth service", () => {
       await expect(getCurrentUser("access-token")).resolves.toMatchObject({
         isServiceProvider: true,
       });
+    });
+  });
+
+  describe("requestPasswordReset", () => {
+    it("mails an INVITED account that has not signed in yet", async () => {
+      serviceMocks.userFindOne.mockResolvedValue(
+        createUserDoc({ email: "demo.guardian@softmato.com", status: "INVITED" }),
+      );
+      serviceMocks.signPurposeToken.mockResolvedValue("reset-token");
+      serviceMocks.sendEmail.mockResolvedValue({ sent: true, id: "email-1" });
+
+      await expect(
+        requestPasswordReset({ email: "demo.guardian@softmato.com" }),
+      ).resolves.toEqual({ requested: true });
+      expect(serviceMocks.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "demo.guardian@softmato.com" }),
+      );
+    });
+
+    it("says so when no account uses the email", async () => {
+      serviceMocks.userFindOne.mockResolvedValue(null);
+
+      await expect(
+        requestPasswordReset({ email: "nobody@softmato.com" }),
+      ).rejects.toMatchObject({ errorCode: "ACCOUNT_NOT_FOUND", status: 404 });
+      expect(serviceMocks.sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("reports a refused send instead of claiming it went", async () => {
+      serviceMocks.userFindOne.mockResolvedValue(createUserDoc());
+      serviceMocks.signPurposeToken.mockResolvedValue("reset-token");
+      serviceMocks.sendEmail.mockResolvedValue({ sent: false, reason: "send_failed" });
+
+      await expect(
+        requestPasswordReset({ email: "owner@example.com" }),
+      ).rejects.toMatchObject({ errorCode: "EMAIL_SEND_FAILED", status: 502 });
     });
   });
 });
