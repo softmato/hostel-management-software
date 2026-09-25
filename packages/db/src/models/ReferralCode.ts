@@ -19,7 +19,6 @@ const referralCodeSchema = new Schema(
   { timestamps: true },
 );
 
-referralCodeSchema.index({ code: 1 }, { unique: true });
 referralCodeSchema.index({ hostelId: 1, residentId: 1 }, { unique: true });
 
 export const ReferralCodeModel =

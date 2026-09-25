@@ -55,7 +55,8 @@
     "dev:mint-session": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-mint-session.mjs",
     "check:softmato": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/dev-check-softmato.mjs",
     "repair:plan-trial": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/repair-plan-trial.mjs",
-    "migrate:cluster": "node scripts/migrate-cluster.mjs"
+    "migrate:cluster": "node scripts/migrate-cluster.mjs",
+    "db:indexes": "node --experimental-transform-types --import ./scripts/register-ts-hook.mjs scripts/ensure-indexes.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1084.0",

@@ -225,7 +225,6 @@ const hostelSchema = new Schema(
   { timestamps: true },
 );
 
-hostelSchema.index({ slug: 1 }, { unique: true });
 // Partial, because the prefix is nullable until every hostel is backfilled —
 // a plain unique index would collide on the nulls.
 hostelSchema.index(

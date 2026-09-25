@@ -51,7 +51,18 @@ export async function connectToDatabase() {
    * times them out. A no-op off Vercel (scripts, local dev).
    */
   cached.promise ??= mongoose
-    .connect(uri, { bufferCommands: false, maxPoolSize: 5, maxIdleTimeMS: 30_000 })
+    .connect(uri, {
+      // Off: on, every cold instance re-sent a createCollection and createIndex
+      // per model — ~435 commands through those 5 sockets on an M0 that serves
+      // 100 operations a second — and a screen's burst of requests queued
+      // behind them past the app's 20-second timeout. Indexes are built on
+      // purpose instead: `npm --prefix apps/web run db:indexes`.
+      autoCreate: false,
+      autoIndex: false,
+      bufferCommands: false,
+      maxIdleTimeMS: 30_000,
+      maxPoolSize: 5,
+    })
     .then((connection) => {
       // An optimisation, so it must never be the reason a connect fails: a
       // throw here used to reject a connection that had already succeeded.
