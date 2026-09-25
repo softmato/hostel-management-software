@@ -5,6 +5,7 @@ import {
   FileSpreadsheet,
   Loader2,
   Lock,
+  LogOut,
   MoreHorizontal,
   Plus,
   QrCode,
@@ -73,6 +74,7 @@ import {
   type RegistrationOutcome,
   ResidentRegisteredSummary,
 } from "./resident-registered-summary";
+import { ResidentMoveOutDialog } from "./resident-move-out-dialog";
 import {
   DataTable,
   EmptyInline,
@@ -159,12 +161,15 @@ type ResidentPrefill = {
 
 type ResidentStatus = "ACTIVE" | "MOVED_OUT" | "PENDING" | "SUSPENDED";
 
-/** Statuses the row menu can switch a resident to, in the order they read. */
+/**
+ * Statuses the row menu can switch a resident to, in the order they read.
+ * Moving out is not one of them — it settles the deposit too, so it has its own
+ * "Move out" item and dialog.
+ */
 const STATUS_ACTIONS: { label: string; status: ResidentStatus }[] = [
   { label: "Mark as active", status: "ACTIVE" },
   { label: "Mark as pending", status: "PENDING" },
   { label: "Suspend", status: "SUSPENDED" },
-  { label: "Mark as moved out", status: "MOVED_OUT" },
 ];
 
 function humanizeValue(value: string) {
@@ -405,6 +410,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   ] = useState("");
   const [monthlyFee, setMonthlyFee] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [moveOutResident, setMoveOutResident] = useState<Resident | null>(null);
   const { confirm, confirmDialog } = useConfirm();
   const workspaceHref = useWorkspaceHref();
   const [saveBusy, setSaveBusy] = useState(false);
@@ -604,21 +610,6 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
     async (resident: Resident, status: ResidentStatus) => {
       const fullName = `${resident.firstName} ${resident.lastName}`.trim();
 
-      // Moving out is the one status that hands the bed back, so it gets a
-      // confirmation the reversible ones do not need.
-      if (status === "MOVED_OUT") {
-        const confirmed = await confirm({
-          actionLabel: "Mark moved out",
-          description: `${fullName}'s bed is freed and becomes available to assign.`,
-          title: "Mark this resident as moved out?",
-          tone: "destructive",
-        });
-
-        if (!confirmed) {
-          return;
-        }
-      }
-
       try {
         const result = await browserApi<{
           accountLink: { linked: boolean; reason?: string };
@@ -642,7 +633,7 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
         setMessage(error instanceof Error ? error.message : "Could not update status.");
       }
     },
-    [confirm, residentsQuery, roomTypesQuery],
+    [residentsQuery, roomTypesQuery],
   );
 
   const handleCreateResident = useCallback(
@@ -849,6 +840,16 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
   return (
     <div className="mx-auto max-w-[1448px] space-y-6">
       {confirmDialog}
+      <ResidentMoveOutDialog
+        onClose={() => setMoveOutResident(null)}
+        onMovedOut={(note) => {
+          setMoveOutResident(null);
+          setMessage(note);
+          // The freed bed changes vacancy, so the room-type dropdown refetches too.
+          void Promise.all([residentsQuery.refreshAsync(), roomTypesQuery.refreshAsync()]);
+        }}
+        resident={moveOutResident}
+      />
       <ResidentRegisteredSummary
         onClose={() => setRegistered(null)}
         onGenerateActivation={(residentId) => {
@@ -1358,6 +1359,15 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                                 {action.label}
                               </DropdownMenuItem>
                             ))}
+                            {resident.status !== "MOVED_OUT" ? (
+                              <DropdownMenuItem
+                                onSelect={() => setMoveOutResident(resident)}
+                                variant="destructive"
+                              >
+                                <LogOut className="size-4" />
+                                Move out
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               disabled={deleteBusy}
@@ -1413,6 +1423,18 @@ export const HostelAdminResidentsPage = memo(function HostelAdminResidentsPage()
                       </SoftBadge>
                     </div>
                   </div>
+                  {selectedResident.status !== "MOVED_OUT" ? (
+                    <Button
+                      className="ml-auto shrink-0"
+                      onClick={() => setMoveOutResident(selectedResident)}
+                      size="sm"
+                      type="button"
+                      variant="destructive"
+                    >
+                      <LogOut className="size-4" />
+                      Move out
+                    </Button>
+                  ) : null}
                 </div>
 
                 <PanelSection title="Details">

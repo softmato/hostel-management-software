@@ -300,12 +300,29 @@ export async function createMoveOutChecklist(
   await connectToDatabase();
 
   const resident = await findAdminResident(residentId, principal, input.hostelId);
+
+  // The amount follows the decision, so "full refund" cannot go out as zero
+  // and "kept" cannot carry a refund; only a partial one is typed in.
+  if (input.depositRefundDecision === "PARTIAL" && input.depositRefundAmount > resident.depositAmount) {
+    throw new MoveChecklistServiceError(
+      "A partial refund cannot be more than the deposit held.",
+      "REFUND_OVER_DEPOSIT",
+    );
+  }
+
+  const depositRefundAmount =
+    input.depositRefundDecision === "APPROVED"
+      ? resident.depositAmount
+      : input.depositRefundDecision === "PARTIAL"
+        ? input.depositRefundAmount
+        : 0;
   const pendingFees = await pendingFeeAmount(resident);
   const checklist = await MoveOutChecklistModel.findOneAndUpdate(
     { hostelId: resident.hostelId, residentId: resident._id },
     {
       $set: {
         ...input,
+        depositRefundAmount,
         completedAt: new Date(),
         completedBy: principal.userId,
         createdBy: principal.userId,
@@ -327,21 +344,32 @@ export async function createMoveOutChecklist(
   }
 
   await Promise.all([
-    DepositRefundModel.create({
-      amount: input.depositRefundAmount,
-      decidedBy: principal.userId,
-      decision: input.depositRefundDecision,
-      hostelId: resident.hostelId,
-      moveOutChecklistId: checklist._id,
-      residentId: resident._id,
-    }),
+    // One refund row per move-out: settling the deposit later updates it
+    // rather than adding a second refund beside the first.
+    DepositRefundModel.updateOne(
+      { moveOutChecklistId: checklist._id },
+      {
+        $set: {
+          amount: depositRefundAmount,
+          decidedAt: new Date(),
+          decidedBy: principal.userId,
+          decision: input.depositRefundDecision,
+          hostelId: resident.hostelId,
+          residentId: resident._id,
+        },
+      },
+      { upsert: true },
+    ),
     ResidentModel.updateOne(
       { _id: resident._id },
       { $set: { status: "MOVED_OUT", updatedBy: principal.userId } },
     ),
   ]);
-  // Moving out hands the bed back to that room type's vacancy count.
-  await releaseBedForRoomType(resident.hostelId, resident.roomType);
+  // Moving out hands the bed back to that room type's vacancy count — once.
+  // Settling the deposit of somebody already gone must not free a second bed.
+  if (resident.status !== "MOVED_OUT") {
+    await releaseBedForRoomType(resident.hostelId, resident.roomType);
+  }
   await auditMoveAction(
     principal,
     resident.hostelId,
@@ -360,7 +388,7 @@ export async function createMoveOutChecklist(
    * conversation and the part about their own money.
    */
   await notifyMoveOutCompleted({
-    depositAmount: input.depositRefundAmount,
+    depositAmount: depositRefundAmount,
     depositDecision: input.depositRefundDecision,
     hostelId: resident.hostelId,
     resident,
@@ -426,13 +454,18 @@ export async function getMoveOutChecklist(
   await connectToDatabase();
 
   const resident = await findAdminResident(residentId, principal, hostelId);
-  const checklist = await MoveOutChecklistModel.findOne({
-    hostelId: resident.hostelId,
-    residentId: resident._id,
-  }).lean<MoveOutRecord | null>();
+  const [checklist, owed] = await Promise.all([
+    MoveOutChecklistModel.findOne({
+      hostelId: resident.hostelId,
+      residentId: resident._id,
+    }).lean<MoveOutRecord | null>(),
+    pendingFeeAmount(resident),
+  ]);
 
   return {
     checklist: serializeMoveOut(checklist),
+    /** What they owe right now — the move-out screen shows it before anyone confirms. */
+    pendingFeeAmount: owed,
     resident: serializeResidentSummary(resident),
   };
 }

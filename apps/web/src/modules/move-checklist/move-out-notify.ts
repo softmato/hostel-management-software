@@ -51,7 +51,7 @@ export async function notifyMoveOutCompleted(input: {
     const hostelName = await getHostelName(input.hostelId);
 
     await createInAppNotification({
-      body: `Your stay at ${hostelName} has been closed. ${describeDeposit(input.depositDecision, input.depositAmount)}`,
+      body: `Your stay at ${hostelName} has been closed. ${describeDeposit(input.depositDecision, input.depositAmount)}`.trim(),
       category: "PAYMENT",
       data: {
         depositAmount: input.depositAmount,
@@ -79,7 +79,8 @@ function describeDeposit(decision: string, amount: number) {
 
   switch (decision) {
     case "APPROVED":
-      return `Your deposit of ${money} is approved for refund.`;
+      // No deposit was held, so there is nothing to say about one.
+      return amount > 0 ? `Your deposit of ${money} is approved for refund.` : "";
     case "PARTIAL":
       return `${money} of your deposit is approved for refund; the rest is held against what was owed.`;
     case "FORFEITED":

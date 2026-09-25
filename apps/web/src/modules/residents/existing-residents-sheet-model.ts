@@ -44,6 +44,15 @@ export type SheetOutRow = Omit<ListRow, "id" | "residentId"> & { id?: string };
 
 export type CellError = { column: SheetColumn; key: string; message: string };
 
+/** What the sheet fills in by itself: each room's rent from the rate card, and this month. */
+export type SheetContext = {
+  currentPeriod: string;
+  rooms: { monthlyRent: number | null; roomType: string }[];
+};
+
+/** Filled by the system, never typed or pasted into. */
+export const AUTO_COLUMNS: readonly SheetColumn[] = ["monthlyRent"];
+
 let keySeed = 0;
 
 function newKey() {
@@ -52,8 +61,39 @@ function newKey() {
   return `sheet-${keySeed}`;
 }
 
-function amountText(value: number | null) {
-  return value ? String(value) : "";
+/** The joined date written when none is: see `defaultJoinedDate`, which the server uses. */
+function defaultJoinedText(paidTill: string, currentPeriod: string) {
+  if (!isBsPeriod(paidTill)) return "";
+
+  return `${paidTill < currentPeriod ? paidTill : currentPeriod}-01`;
+}
+
+/**
+ * The boxes the sheet fills itself, after `before` became `cells`: the rent is
+ * the room's, and a joined date nobody typed follows the rent choice — so
+ * changing "Paid this month" to "2 months due" never leaves a joined date that
+ * bills the older month short.
+ */
+export function autoFill(
+  cells: SheetRow["cells"],
+  before: SheetRow["cells"],
+  context: SheetContext,
+): SheetRow["cells"] {
+  const room = context.rooms.find(
+    (candidate) => candidate.roomType.trim().toLowerCase() === cells.roomType.trim().toLowerCase(),
+  );
+  // Untouched by this change, and either empty or the date the sheet wrote itself.
+  const joinedIsAuto =
+    cells.joinedDate === before.joinedDate &&
+    (!before.joinedDate.trim() || before.joinedDate === defaultJoinedText(before.paidTill, context.currentPeriod));
+
+  return {
+    ...cells,
+    joinedDate: joinedIsAuto
+      ? defaultJoinedText(cells.paidTill, context.currentPeriod) || cells.joinedDate
+      : cells.joinedDate,
+    monthlyRent: room?.monthlyRent ? String(room.monthlyRent) : "",
+  };
 }
 
 /**
@@ -97,7 +137,7 @@ export function blankSheetRow(): SheetRow {
       fullName: "",
       joinedDate: "",
       monthlyRent: "",
-      oldDues: "",
+      oldDues: "0",
       paidTill: "",
       phone: "",
       roomType: "",
@@ -107,19 +147,21 @@ export function blankSheetRow(): SheetRow {
   };
 }
 
-export function sheetRowFrom(row: ListRow): SheetRow {
+export function sheetRowFrom(row: ListRow, context: SheetContext): SheetRow {
+  const cells = {
+    depositPaid: String(row.depositPaid ?? 0),
+    email: row.email,
+    fullName: row.fullName,
+    joinedDate: joinedDateText(row.joinedDate),
+    monthlyRent: "",
+    oldDues: String(row.oldDues ?? 0),
+    paidTill: row.paidTill ?? "",
+    phone: row.phone,
+    roomType: row.roomType,
+  };
+
   return {
-    cells: {
-      depositPaid: String(row.depositPaid ?? 0),
-      email: row.email,
-      fullName: row.fullName,
-      joinedDate: joinedDateText(row.joinedDate),
-      monthlyRent: amountText(row.monthlyRent),
-      oldDues: amountText(row.oldDues),
-      paidTill: row.paidTill ?? "",
-      phone: row.phone,
-      roomType: row.roomType,
-    },
+    cells: autoFill(cells, cells, context),
     id: row.id,
     key: row.id,
     residentId: row.residentId,
@@ -127,16 +169,19 @@ export function sheetRowFrom(row: ListRow): SheetRow {
 }
 
 /** The list's lines, with empty lines under them to type into. */
-export function sheetFrom(rows: ListRow[], spare = 20): SheetRow[] {
-  return [...rows.map(sheetRowFrom), ...Array.from({ length: spare }, blankSheetRow)];
+export function sheetFrom(rows: ListRow[], context: SheetContext, spare = 20): SheetRow[] {
+  return [...rows.map((row) => sheetRowFrom(row, context)), ...Array.from({ length: spare }, blankSheetRow)];
 }
 
-/** Nothing typed but the default deposit — never saved, never checked. */
+/** Nothing typed but the defaults — never saved, never checked. */
 export function isBlankSheetRow(row: SheetRow) {
   return (
     !row.residentId &&
     Object.entries(row.cells).every(
-      ([column, value]) => !value.trim() || (column === "depositPaid" && value.trim() === "0"),
+      ([column, value]) =>
+        !value.trim() ||
+        AUTO_COLUMNS.includes(column as SheetColumn) ||
+        ((column === "depositPaid" || column === "oldDues") && value.trim() === "0"),
     )
   );
 }
@@ -151,7 +196,7 @@ export function readSheet(rows: SheetRow[]): { errors: CellError[]; rows: SheetO
 
     const { cells } = row;
     const fail = (column: SheetColumn, message: string) => errors.push({ column, key: row.key, message });
-    const amount = (column: "depositPaid" | "monthlyRent" | "oldDues") => {
+    const amount = (column: "depositPaid" | "oldDues") => {
       const value = readRupees(cells[column]);
 
       if (value === undefined) fail(column, "Write only the amount, like 12000.");
@@ -173,7 +218,8 @@ export function readSheet(rows: SheetRow[]): { errors: CellError[]; rows: SheetO
       fullName: cells.fullName.trim(),
       ...(row.id ? { id: row.id } : {}),
       joinedDate: joined ? joined.toISOString() : null,
-      monthlyRent: amount("monthlyRent"),
+      // The rate card's, read by the server — the box only shows it.
+      monthlyRent: null,
       oldDues: amount("oldDues") ?? 0,
       paidTill: paidTill || null,
       phone: cells.phone.trim(),
@@ -189,13 +235,15 @@ export function readSheet(rows: SheetRow[]): { errors: CellError[]; rows: SheetO
  * rightwards and downwards from there, in the Excel file's column order, over
  * lines already added as residents rather than into them. A copied header line
  * is skipped. "Months due" pasted into Rent becomes the month rent is paid till.
+ * A pasted rent is dropped: that box is the rate card's.
  */
 export function pasteIntoSheet(
   rows: SheetRow[],
   at: { column: number; row: number },
   text: string,
-  context: { currentPeriod: string; roomTypes: string[] },
+  context: SheetContext,
 ): SheetRow[] {
+
   let lines = text.replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n");
 
   if (/name/i.test(lines[0] ?? "") && /phone/i.test(lines[0] ?? "")) {
@@ -216,13 +264,14 @@ export function pasteIntoSheet(
     line.split("\t").forEach((raw, offset) => {
       const column = SHEET_COLUMNS[at.column + offset]?.key;
 
-      if (!column) return;
+      if (!column || AUTO_COLUMNS.includes(column)) return;
 
       const value = raw.trim();
 
       if (column === "roomType") {
         cells.roomType =
-          context.roomTypes.find((room) => room.toLowerCase() === value.toLowerCase()) ?? value;
+          context.rooms.find((room) => room.roomType.toLowerCase() === value.toLowerCase())?.roomType ??
+          value;
       } else if (column === "paidTill") {
         const due = readMonthsDue(value);
         const month = typeof due === "number" ? null : readBsMonth(value);
@@ -234,7 +283,7 @@ export function pasteIntoSheet(
       }
     });
 
-    next[target] = { ...row, cells };
+    next[target] = { ...row, cells: autoFill(cells, row.cells, context) };
     target += 1;
   }
 

@@ -189,17 +189,13 @@ describe("adding the list", () => {
     expect(calls[0].dueDate).toEqual(calls[1].dueDate);
   });
 
-  it("saves a different rent as the resident's own, with the reason", async () => {
+  it("never gives a resident a rent of their own — the rate card decides", async () => {
     withList([stored({ monthlyRent: 9000 })]);
 
     await addExistingResidents(hostelId, principal);
 
-    expect(mocks.residentCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        feeOverrideReason: "Rent agreed before joining HostelPalika",
-        monthlyFee: 9000,
-      }),
-    );
+    expect(mocks.residentCreate).toHaveBeenCalledWith(expect.objectContaining({ monthlyFee: null }));
+    expect(mocks.residentCreate.mock.calls[0]![0]).not.toHaveProperty("feeOverrideReason");
   });
 
   it("raises Old dues as one bill with no month", async () => {

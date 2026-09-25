@@ -175,6 +175,17 @@ export function readJoinedDate(text: string): Date | null | undefined {
   return undefined;
 }
 
+/**
+ * The joined date when none is written: the 1st of the month rent is paid till,
+ * or of this month when paid ahead. Never later than the first unpaid month, so
+ * no due month is billed short.
+ */
+export function defaultJoinedDate(paidTill: string, currentPeriod: string): Date {
+  const [year, month] = (paidTill < currentPeriod ? paidTill : currentPeriod).split("-").map(Number);
+
+  return fromBs({ day: 1, month: month!, year: year! });
+}
+
 /** Digits, with a leading `+` kept. Excel sometimes appends `.0` to a number. */
 export function readPhone(text: string): string {
   const cleaned = westernDigits(text).trim().replace(/\.0+$/, "");

@@ -25,6 +25,7 @@ import {
   splitFullName,
   unpaidMonths,
 } from "@/modules/residents/existing-residents-check";
+import { defaultJoinedDate } from "@/modules/residents/existing-residents-cells";
 import {
   buildExistingResidentsTemplate,
   readExistingResidentsFile,
@@ -93,7 +94,6 @@ export class ExistingResidentsError extends Error {
 const LOCK_STALE_MS = 6 * 60 * 1000;
 
 export const OLD_DUES_LINE = `Old dues (before ${PLATFORM_NAME})`;
-const RENT_OVERRIDE_REASON = `Rent agreed before joining ${PLATFORM_NAME}`;
 
 type StoredRow = {
   _id: Types.ObjectId;
@@ -324,8 +324,10 @@ function storedFromInput(row: ExistingResidentRowInput) {
     depositPaid: row.depositPaid,
     email: row.email.toLowerCase(),
     fullName: row.fullName.replace(/\s+/g, " "),
-    joinedDate: row.joinedDate,
-    monthlyRent: row.monthlyRent,
+    joinedDate:
+      row.joinedDate ?? (row.paidTill ? defaultJoinedDate(row.paidTill, hostelPeriodOf(new Date())) : null),
+    // Rent is the rate card's, read when the list is checked — never stored per line.
+    monthlyRent: null,
     oldDues: row.oldDues,
     paidTill: row.paidTill,
     phone: row.phone,
@@ -552,7 +554,6 @@ export async function addExistingResidents(
       const checked = check.rows.find((candidate) => candidate.id === row.id)!;
       const room = roomTypes.find((candidate) => sameRoomType(candidate.roomType, row.roomType))!;
       const name = splitFullName(row.fullName)!;
-      const override = row.monthlyRent !== null && row.monthlyRent !== room.monthlyRent;
 
       try {
         await claimBedForRoomType(hostelId, room.roomType);
@@ -578,14 +579,7 @@ export async function addExistingResidents(
           hostelId,
           isDeleted: false,
           lastName: name.lastName,
-          monthlyFee: override ? checked.rent : null,
-          ...(override
-            ? {
-                feeOverrideReason: RENT_OVERRIDE_REASON,
-                feeOverrideSetAt: now,
-                feeOverrideSetBy: principal.userId,
-              }
-            : {}),
+          monthlyFee: null,
           moveInDate: moveInDateFor(row),
           paidTill: row.paidTill,
           phone: row.phone,

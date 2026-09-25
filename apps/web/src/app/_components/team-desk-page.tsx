@@ -19,13 +19,10 @@ import { formatBsAdDate } from "@hostel/shared/calendar/bs";
  * illustration, no explanatory prose about what the field team does. The person
  * reading it is the field team.
  *
- * ## The order is the point
+ * ## The order
  *
- * Rows come back owed-first, oldest deadline leading, rather than newest-first.
- * This list is opened to answer "who do I ring today", and under a date sort the
- * hostel that has been overdue longest sinks further down the page every time
- * anybody files a new registration — the one row that most needed attention
- * being the one hardest to find.
+ * Newest registration first. The overdue ones carry their "Due" badge and a
+ * Pay button, so they are found by eye rather than by sort.
  *
  * ## Why "cash in hand" is its own figure
  *

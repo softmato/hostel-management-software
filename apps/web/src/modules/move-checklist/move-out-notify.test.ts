@@ -54,6 +54,14 @@ describe("notifyMoveOutCompleted", () => {
     expect(call.category).toBe("PAYMENT");
   });
 
+  it("says nothing about a deposit when none was held", async () => {
+    await moveOut({ depositAmount: 0 });
+
+    expect(mocks.createNotification.mock.calls[0][0].body).toBe(
+      "Your stay at Everest Hostel has been closed.",
+    );
+  });
+
   it("explains a partial refund rather than only naming the amount", async () => {
     await moveOut({ depositAmount: 3000, depositDecision: "PARTIAL" });
 

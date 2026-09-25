@@ -10,6 +10,7 @@ import { assertHostelAccess } from "@/lib/tenant";
 import { claimRegistrationDocuments } from "@/lib/registration-documents";
 import { AuditLogModel } from "@hostel/db/models/AuditLog";
 import { CookAccountModel } from "@hostel/db/models/CookAccount";
+import { FileAssetModel } from "@hostel/db/models/FileAsset";
 import { HostelApplicationModel } from "@hostel/db/models/HostelApplication";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelSubscriptionModel } from "@hostel/db/models/HostelSubscription";
@@ -1853,6 +1854,15 @@ export async function getPlatformHostel(hostelId: string) {
     .sort({ createdAt: -1 })
     .lean<HostelDocumentRecord[]>();
 
+  // The review page previews each upload inline, and the presign URL has no
+  // extension — the asset's own type says whether to draw an image or a PDF.
+  const assets = await FileAssetModel.find({
+    _id: { $in: documents.flatMap((document) => document.fileAssetId ?? []) },
+  })
+    .select("fileName mimeType")
+    .lean<Array<{ _id: Types.ObjectId; fileName?: string; mimeType?: string }>>();
+  const assetById = new Map(assets.map((asset) => [asset._id.toString(), asset]));
+
   // Who actually filed this listing. The applicant is the hostel owner; the
   // submitter can differ when a staff member filed on their behalf, so both are
   // surfaced to the reviewer.
@@ -1892,7 +1902,16 @@ export async function getPlatformHostel(hostelId: string) {
     applicant: application
       ? (contactById.get(application.applicantId.toString()) ?? null)
       : null,
-    documents: documents.map(serializeHostelDocument),
+    documents: documents.map((document) => {
+      const asset = document.fileAssetId
+        ? assetById.get(document.fileAssetId.toString())
+        : undefined;
+      return {
+        ...serializeHostelDocument(document),
+        fileName: asset?.fileName ?? "",
+        mimeType: asset?.mimeType ?? "",
+      };
+    }),
     hostel: serializeHostel(hostel),
     owner: contactById.get(hostel.ownerId.toString()) ?? null,
     submitter: application

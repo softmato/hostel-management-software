@@ -6,6 +6,8 @@ import { useMemo, useState } from "react";
 import { useConfirm } from "@/app/_components/confirm-dialog";
 import type { CheckResult, ListRow } from "@/modules/residents/existing-residents-check";
 import {
+  AUTO_COLUMNS,
+  autoFill,
   blankSheetRow,
   cleanCell,
   columnOfProblem,
@@ -16,6 +18,7 @@ import {
   SHEET_COLUMNS,
   sheetFrom,
   type SheetColumn,
+  type SheetContext,
   type SheetOutRow,
   type SheetRow,
 } from "@/modules/residents/existing-residents-sheet-model";
@@ -39,7 +42,8 @@ type Props = {
   onSave: (rows: SheetOutRow[]) => Promise<{ check: CheckResult | null; rows: ListRow[] }>;
   /** The list line to put the cursor on. */
   openAt?: string | null;
-  roomTypes: string[];
+  /** Each room type with its rate-card rent, which fills the rent box. */
+  rooms: SheetContext["rooms"];
   rows: ListRow[];
   tone: "admin" | "platform";
 };
@@ -60,12 +64,13 @@ export function ExistingResidentsSheet({
   onClose,
   onSave,
   openAt,
-  roomTypes,
+  rooms,
   rows: listRows,
   tone,
 }: Props) {
   const { confirm, confirmDialog } = useConfirm();
-  const [rows, setRows] = useState<SheetRow[]>(() => sheetFrom(listRows));
+  const context = useMemo(() => ({ currentPeriod, rooms }), [currentPeriod, rooms]);
+  const [rows, setRows] = useState<SheetRow[]>(() => sheetFrom(listRows, context));
   const [check, setCheck] = useState(firstCheck);
   // Lines typed in since the last check — their old problems no longer apply.
   const [edited, setEdited] = useState<Set<string>>(() => new Set());
@@ -79,24 +84,25 @@ export function ExistingResidentsSheet({
     return chosen >= 0 ? chosen : listRows.length;
   });
 
-  const columns = useMemo(
-    () =>
-      SHEET_COLUMNS.map((column): SheetGridColumn => ({
-        ...column,
-        inputMode: INPUT_MODES[column.key],
-        options:
-          column.key === "roomType"
-            ? (value) => [
-                ...(value && !roomTypes.includes(value) ? [value] : []),
-                ...roomTypes,
-              ].map((room) => ({ label: room, value: room }))
-            : column.key === "paidTill"
-              ? (value) => rentStatusOptions(currentPeriod, value || null)
-              : undefined,
-        placeholder: column.key === "joinedDate" ? "2082-04-15" : undefined,
-      })),
-    [currentPeriod, roomTypes],
-  );
+  const columns = useMemo(() => {
+    const roomTypes = rooms.map((room) => room.roomType);
+
+    return SHEET_COLUMNS.map((column): SheetGridColumn => ({
+      ...column,
+      inputMode: INPUT_MODES[column.key],
+      options:
+        column.key === "roomType"
+          ? (value) => [
+              ...(value && !roomTypes.includes(value) ? [value] : []),
+              ...roomTypes,
+            ].map((room) => ({ label: room, value: room }))
+          : column.key === "paidTill"
+            ? (value) => rentStatusOptions(currentPeriod, value || null)
+            : undefined,
+      placeholder: column.key === "joinedDate" ? "2082-04-15" : undefined,
+      readOnly: AUTO_COLUMNS.includes(column.key),
+    }));
+  }, [currentPeriod, rooms]);
 
   const read = useMemo(() => readSheet(rows), [rows]);
   const cellErrors = useMemo(
@@ -114,14 +120,16 @@ export function ExistingResidentsSheet({
   function setCell(key: string, column: SheetColumn, value: string) {
     setRows((current) =>
       current.map((row) =>
-        row.key === key ? { ...row, cells: { ...row.cells, [column]: cleanCell(column, value) } } : row,
+        row.key === key
+          ? { ...row, cells: autoFill({ ...row.cells, [column]: cleanCell(column, value) }, row.cells, context) }
+          : row,
       ),
     );
     setEdited((current) => (current.has(key) ? current : new Set(current).add(key)));
   }
 
   function onPaste(at: { column: number; row: number }, text: string) {
-    const next = pasteIntoSheet(rows, at, text, { currentPeriod, roomTypes });
+    const next = pasteIntoSheet(rows, at, text, context);
 
     setRows(next);
     setEdited((current) => {
@@ -164,7 +172,7 @@ export function ExistingResidentsSheet({
         return;
       }
 
-      setRows(sheetFrom(result.rows));
+      setRows(sheetFrom(result.rows, context));
       setCheck(result.check);
       setEdited(new Set());
     } catch (cause) {
@@ -259,6 +267,7 @@ export function ExistingResidentsSheet({
         ) : (
           <span className="text-muted-foreground">
             Line {active.row + 1} · {SHEET_COLUMNS[active.column]?.label}
+            {AUTO_COLUMNS.includes(SHEET_COLUMNS[active.column]!.key) ? " · fills itself from the rate card" : null}
           </span>
         )
       }

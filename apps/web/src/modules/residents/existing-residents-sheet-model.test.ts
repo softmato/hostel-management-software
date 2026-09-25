@@ -1,7 +1,9 @@
+import { fromBs } from "@hostel/shared/calendar/bs";
 import { describe, expect, it } from "vitest";
 
 import type { ListRow } from "./existing-residents-check";
 import {
+  autoFill,
   blankSheetRow,
   cleanCell,
   isBlankSheetRow,
@@ -12,7 +14,13 @@ import {
   sheetFrom,
 } from "./existing-residents-sheet-model";
 
-const context = { currentPeriod: "2083-05", roomTypes: ["Double", "Single"] };
+const context = {
+  currentPeriod: "2083-05",
+  rooms: [
+    { monthlyRent: 12000, roomType: "Double" },
+    { monthlyRent: null, roomType: "Single" },
+  ],
+};
 
 function listRow(patch: Partial<ListRow> = {}): ListRow {
   return {
@@ -33,7 +41,7 @@ function listRow(patch: Partial<ListRow> = {}): ListRow {
 
 describe("the residents sheet", () => {
   it("opens the list with empty lines under it, and saves none of the empty ones", () => {
-    const sheet = sheetFrom([listRow()], 5);
+    const sheet = sheetFrom([listRow()], context, 5);
 
     expect(sheet).toHaveLength(6);
     expect(readSheet(sheet)).toEqual({
@@ -44,7 +52,8 @@ describe("the residents sheet", () => {
           email: "ram@example.com",
           fullName: "Ram Thapa",
           id: "row-1",
-          joinedDate: null,
+          // None written: the 1st of the month rent is paid till.
+          joinedDate: fromBs({ day: 1, month: 4, year: 2083 }).toISOString(),
           monthlyRent: null,
           oldDues: 0,
           paidTill: "2083-04",
@@ -56,7 +65,7 @@ describe("the residents sheet", () => {
   });
 
   it("shows and reads the joined date as a Nepali date", () => {
-    const [row] = sheetFrom([listRow({ joinedDate: "2025-07-31T00:00:00.000Z" })], 0);
+    const [row] = sheetFrom([listRow({ joinedDate: "2025-07-31T00:00:00.000Z" })], context, 0);
     const text = row!.cells.joinedDate;
 
     expect(text).toMatch(/^2082-04-\d{2}$/);
@@ -67,17 +76,17 @@ describe("the residents sheet", () => {
   it("names the cells it cannot read", () => {
     const row = blankSheetRow();
 
-    row.cells = { ...row.cells, fullName: "Sita KC", joinedDate: "last year", monthlyRent: "twelve" };
+    row.cells = { ...row.cells, fullName: "Sita KC", joinedDate: "last year", oldDues: "twelve" };
 
     expect(readSheet([row]).errors).toEqual([
       { column: "joinedDate", key: row.key, message: "Write the Nepali date like 2082-04-15." },
-      { column: "monthlyRent", key: row.key, message: "Write only the amount, like 12000." },
+      { column: "oldDues", key: row.key, message: "Write only the amount, like 12000." },
     ]);
   });
 
   it("pastes copied rows from the cursor, skipping the header and lines already added", () => {
     const sheet = [
-      ...sheetFrom([listRow({ id: "added", residentId: "r1" })], 0),
+      ...sheetFrom([listRow({ id: "added", residentId: "r1" })], context, 0),
       blankSheetRow(),
     ];
     const pasted = [
@@ -92,12 +101,19 @@ describe("the residents sheet", () => {
     expect(next[0]!.cells.fullName).toBe("Ram Thapa");
     expect(next[1]!.cells).toMatchObject({
       fullName: "Sita KC",
-      monthlyRent: "11000",
+      joinedDate: "2083-03-01",
+      monthlyRent: "12000",
       paidTill: "2083-03",
       roomType: "Double",
     });
-    expect(next[2]!.cells).toMatchObject({ depositPaid: "5000", fullName: "Hari Rai", paidTill: "2083-05" });
-    expect(readSheet(next).rows[1]!.monthlyRent).toBe(11000);
+    expect(next[2]!.cells).toMatchObject({
+      depositPaid: "5000",
+      fullName: "Hari Rai",
+      monthlyRent: "",
+      paidTill: "2083-05",
+    });
+    // A pasted 11,000 is dropped: the box shows the rate card, and the server reads that, never the box.
+    expect(readSheet(next).rows[1]!.monthlyRent).toBeNull();
   });
 
   it("pastes a column of values into the column the cursor is on", () => {
@@ -116,8 +132,27 @@ describe("the residents sheet", () => {
     const row = blankSheetRow();
 
     expect(row.cells.depositPaid).toBe("0");
+    expect(row.cells.oldDues).toBe("0");
     expect(isBlankSheetRow(row)).toBe(true);
     expect(isBlankSheetRow({ ...row, id: "saved-blank" })).toBe(true);
+  });
+
+  it("fills the rent from the room, and a joined date that follows the rent choice until typed", () => {
+    const blank = blankSheetRow().cells;
+    const paid = autoFill({ ...blank, paidTill: "2083-05", roomType: "double" }, blank, context);
+
+    expect(paid).toMatchObject({ joinedDate: "2083-05-01", monthlyRent: "12000" });
+
+    // "Paid this month" became "2 months due": the date moves back, so Shrawan is billed in full.
+    expect(autoFill({ ...paid, paidTill: "2083-03" }, paid, context).joinedDate).toBe("2083-03-01");
+
+    // Paid ahead: never a joined date in the future.
+    expect(autoFill({ ...paid, paidTill: "2083-07" }, paid, context).joinedDate).toBe("2083-05-01");
+
+    const typed = autoFill({ ...paid, joinedDate: "2082-04-15" }, paid, context);
+
+    expect(typed.joinedDate).toBe("2082-04-15");
+    expect(autoFill({ ...typed, paidTill: "2083-03" }, typed, context).joinedDate).toBe("2082-04-15");
   });
 
   it("says the rent the way the list asks it", () => {

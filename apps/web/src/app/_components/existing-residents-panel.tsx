@@ -151,6 +151,12 @@ export function ExistingResidentsPanel({ apiBase, tone }: Props) {
   }, [check]);
 
   const pendingCount = rows.filter((row) => !row.residentId).length;
+  // Rent is the rate card's, whatever a line once said.
+  const rentOf = useMemo(
+    () =>
+      new Map((view?.roomTypes ?? []).map((room) => [room.roomType.trim().toLowerCase(), room.monthlyRent])),
+    [view],
+  );
 
   async function save(next: SheetOutRow[]) {
     const result = await browserApi<ExistingResidentsView>(apiBase, {
@@ -310,7 +316,7 @@ export function ExistingResidentsPanel({ apiBase, tone }: Props) {
             return { check: result.check, rows: result.list?.rows ?? [] };
           }}
           openAt={sheetAt || null}
-          roomTypes={view.roomTypes.map((room) => room.roomType)}
+          rooms={view.roomTypes}
           rows={rows}
           tone={tone}
         />
@@ -471,6 +477,7 @@ export function ExistingResidentsPanel({ apiBase, tone }: Props) {
                   const checked = checkedById.get(row.id);
                   const problems = checked?.problems ?? [];
                   const rent = rentStatusLabel(period, row.paidTill);
+                  const monthly = rentOf.get(row.roomType.trim().toLowerCase());
                   const edge = problems.length ? "" : "border-b border-border/60";
 
                   return [
@@ -497,12 +504,12 @@ export function ExistingResidentsPanel({ apiBase, tone }: Props) {
                       <td className={cn("px-2 py-2.5", edge)}>{row.roomType || "—"}</td>
                       <td className={cn("px-2 py-2.5", edge)}>
                         {rent ?? <span className="text-warning">Not chosen</span>}
-                        {row.monthlyRent ? (
-                          <span className="block text-xs text-muted-foreground">{currency(row.monthlyRent)} a month</span>
+                        {monthly ? (
+                          <span className="block text-xs text-muted-foreground">{currency(monthly)} a month</span>
                         ) : null}
                       </td>
-                      <td className={cn("px-2 py-2.5", edge)}>{row.depositPaid ? currency(row.depositPaid) : "—"}</td>
-                      <td className={cn("px-2 py-2.5", edge)}>{row.oldDues ? currency(row.oldDues) : "—"}</td>
+                      <td className={cn("px-2 py-2.5", edge)}>{currency(row.depositPaid)}</td>
+                      <td className={cn("px-2 py-2.5", edge)}>{currency(row.oldDues)}</td>
                       <td className={cn("px-2 py-2.5", edge)}>{joinedDateText(row.joinedDate) || "—"}</td>
                       <td className={cn("max-w-48 truncate px-2 py-2.5", edge)}>{row.email || "—"}</td>
                       <td className={cn("px-2 py-2.5 text-xs", edge)}>

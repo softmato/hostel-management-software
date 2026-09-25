@@ -1,28 +1,32 @@
 "use client";
 
 import {
-  Building2,
+  CircleCheck,
   Check,
   Clock3,
+  ExternalLink,
   EyeOff,
   FileText,
   Globe,
+  History,
   ImageOff,
   Mail,
+  MapPin,
+  Maximize2,
   Phone,
   ShieldQuestion,
   X,
 } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 
-import { currency, EmptyState, LoadingRows, Panel } from "@/app/_components/shared-ui";
+import { currency, EmptyState, LoadingRows } from "@/app/_components/shared-ui";
 import {
   DataTable,
-  DetailField,
-  DetailSection,
+  InitialsAvatar,
   PortalPageHeader,
   RoleButton,
+  SectionCard,
   SoftBadge,
   TabBar,
   TableBody,
@@ -37,14 +41,18 @@ import { ReviewPayoutAccount } from "@/components/bookings/review-payout-account
 import { browserApi } from "@/lib/browser-api";
 import { platformEndpoints } from "@/lib/platform-endpoints";
 import { useInvalidateResources, usePortalResource } from "@/lib/portal-query";
+import { cn } from "@/lib/utils";
 import { Hostel, Message } from "./core-portal-shared";
 
 type PlatformHostelDocument = {
   createdAt: string | null;
   documentType: string;
   fileAssetId: string | null;
+  /** From the FileAsset — empty on legacy rows that only kept a raw URL. */
+  fileName?: string;
   fileUrl: string;
   id: string;
+  mimeType?: string;
   rejectionReason: string;
   status: string;
 };
@@ -71,21 +79,23 @@ type Contact = {
   role: string;
 } | null;
 
+type RoomConfiguration = {
+  bedsPerRoom: number;
+  mealInclusion: string;
+  monthlyRent: number;
+  rooms: number;
+  roomType: string;
+  vacantBeds: number;
+};
+
 type PlatformHostelDetail = {
   applicant: Contact;
   application: PlatformApplication;
   documents: PlatformHostelDocument[];
-  hostel: Hostel;
+  hostel: Hostel & { roomConfigurations?: RoomConfiguration[] };
   owner: Contact;
   submitter: Contact;
 };
-
-const TABS = [
-  { key: "submission", label: "Submission" },
-  { key: "form", label: "Form Data" },
-  { key: "photos", label: "Photos" },
-  { key: "documents", label: "Documents" },
-];
 
 /**
  * Approve/reject/publish are one-way transitions, so which header buttons make
@@ -122,6 +132,18 @@ function assetHref(fileAssetId?: string | null, fileUrl?: string) {
   return fileUrl || null;
 }
 
+/** The presign URL carries no extension, so the asset's own type decides. */
+function documentKind(document: PlatformHostelDocument): "image" | "pdf" | "file" {
+  const mime = document.mimeType ?? "";
+  const name = document.fileName || (document.fileUrl.split(/[?#]/)[0] ?? "");
+  if (mime === "application/pdf" || /\.pdf$/i.test(name)) return "pdf";
+  if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|avif)$/i.test(name)) {
+    return "image";
+  }
+  // Legacy rows with neither were always photos of paperwork.
+  return mime ? "file" : "image";
+}
+
 function formatTimestamp(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
@@ -132,53 +154,218 @@ function humanizeKey(key: string) {
   return key
     .replace(/([A-Z])/g, " $1")
     .replace(/[_-]/g, " ")
-    .replace(/^./, (character) => character.toUpperCase())
-    .trim();
+    .trim()
+    .toLowerCase()
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function humanizeEnum(value: string) {
+  return humanizeKey(value.toLowerCase());
+}
+
+// ── Original submission ───────────────────────────────────────────────
+
+/** Asset ids and the like are plumbing, not something the owner typed. */
+const HIDDEN_SNAPSHOT_KEY = /id$/i;
+const MONEY_KEY = /rent|fee|price|amount/i;
+
+type SnapshotCell = { now?: string; value: string };
+type SnapshotGroup =
+  | { cells: Array<SnapshotCell & { label: string }>; kind: "fields"; title: string }
+  | {
+      columns: Array<{ key: string; label: string }>;
+      kind: "table";
+      rows: SnapshotCell[][];
+      title: string;
+    };
+
+function displayValue(value: unknown, key = ""): string {
+  if (value == null || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number" && MONEY_KEY.test(key)) return currency(value);
+  if (Array.isArray(value)) {
+    return value.length ? value.map((item) => displayValue(item)).join(", ") : "—";
+  }
+  if (typeof value === "object") {
+    return Object.values(value).map((item) => displayValue(item)).join(", ");
+  }
+  return String(value);
 }
 
 /**
- * Flattens the stored registration snapshot into label/value rows. The snapshot
- * is Mixed, so anything nested is walked rather than dumped as JSON — the point
- * is for a reviewer to read what the owner typed.
+ * The submitted value, plus what the live listing holds at the same path when
+ * that differs. Paths the listing doesn't store (applicant, chosen plan) have
+ * nothing to compare against and are left alone.
  */
-function flattenSnapshot(
-  value: unknown,
-  prefix = "",
-  depth = 0,
-): Array<{ label: string; value: string }> {
-  if (depth > 3 || value == null) {
-    return [];
+function snapshotCell(
+  submitted: unknown,
+  live: unknown,
+  path: Array<string | number>,
+): SnapshotCell {
+  const key = String(path.at(-1));
+  const value = displayValue(submitted, key);
+  const current = path.reduce<unknown>(
+    (node, step) =>
+      node != null && typeof node === "object"
+        ? (node as Record<string, unknown>)[step]
+        : undefined,
+    live,
+  );
+  if (current === undefined || (current !== null && typeof current === "object")) {
+    return { value };
   }
-
-  if (Array.isArray(value)) {
-    if (value.length === 0) return [{ label: prefix, value: "—" }];
-    if (value.every((item) => typeof item !== "object")) {
-      return [{ label: prefix, value: value.join(", ") }];
-    }
-    return value.flatMap((item, index) =>
-      flattenSnapshot(item, `${prefix} #${index + 1}`, depth + 1),
-    );
-  }
-
-  if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) =>
-      flattenSnapshot(
-        nested,
-        prefix ? `${prefix} · ${humanizeKey(key)}` : humanizeKey(key),
-        depth + 1,
-      ),
-    );
-  }
-
-  return [{ label: prefix, value: String(value) || "—" }];
+  const now = displayValue(current, key);
+  return now === value ? { value } : { now, value };
 }
+
+/**
+ * Groups the stored registration snapshot the way the form asked for it: loose
+ * fields together, each nested object as its own card, lists of objects (room
+ * configurations, documents) as tables.
+ */
+function snapshotGroups(snapshot: Record<string, unknown>, live: unknown) {
+  const general: Array<SnapshotCell & { label: string }> = [];
+  const groups: SnapshotGroup[] = [];
+
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (HIDDEN_SNAPSHOT_KEY.test(key)) continue;
+    const title = humanizeKey(key);
+
+    if (Array.isArray(value) && value.some((item) => item && typeof item === "object")) {
+      const items = value as Array<Record<string, unknown>>;
+      const columns = [...new Set(items.flatMap((item) => Object.keys(item ?? {})))]
+        .filter((column) => !HIDDEN_SNAPSHOT_KEY.test(column))
+        .map((column) => ({ key: column, label: humanizeKey(column) }));
+      groups.push({
+        columns,
+        kind: "table",
+        rows: items.map((item, index) =>
+          columns.map((column) =>
+            snapshotCell(item?.[column.key], live, [key, index, column.key]),
+          ),
+        ),
+        title,
+      });
+    } else if (value && typeof value === "object" && !Array.isArray(value)) {
+      groups.push({
+        cells: Object.entries(value)
+          .filter(([field]) => !HIDDEN_SNAPSHOT_KEY.test(field))
+          .map(([field, nested]) => ({
+            label: humanizeKey(field),
+            ...snapshotCell(nested, live, [key, field]),
+          })),
+        kind: "fields",
+        title,
+      });
+    } else {
+      general.push({ label: title, ...snapshotCell(value, live, [key]) });
+    }
+  }
+
+  return general.length > 0
+    ? [{ cells: general, kind: "fields" as const, title: "General" }, ...groups]
+    : groups;
+}
+
+function SnapshotValue({ cell }: { cell: SnapshotCell }) {
+  if (!cell.now) return <>{cell.value}</>;
+  return (
+    <>
+      <span className="text-muted-foreground line-through">{cell.value}</span>
+      <span className="block text-[11.5px] font-semibold text-amber-600 dark:text-amber-400">
+        Now {cell.now}
+      </span>
+    </>
+  );
+}
+
+// ── Layout pieces ─────────────────────────────────────────────────────
+
+/** Label-over-value pairs: short eye travel, unlike a full-width label ··· value row. */
+function Facts({
+  columns = 2,
+  items,
+}: {
+  columns?: 2 | 3;
+  items: Array<{ label: string; value: ReactNode }>;
+}) {
+  return (
+    <dl
+      className={cn(
+        "grid grid-cols-2 gap-x-4 gap-y-3",
+        columns === 3 && "sm:grid-cols-3",
+      )}
+    >
+      {items.map((item) => (
+        <div className="min-w-0" key={item.label}>
+          <dt className="text-[11px] text-muted-foreground">{item.label}</dt>
+          <dd className="mt-0.5 break-words text-[13px] font-medium text-foreground">
+            {item.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-card px-3 py-2.5 shadow-sm">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-[16px] font-bold tracking-tight text-foreground">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function PersonRow({ contact, label }: { contact: NonNullable<Contact>; label: string }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-border/60 py-3 first:pt-0 last:border-0 last:pb-0">
+      <InitialsAvatar name={contact.name} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[13.5px] font-semibold text-foreground">{contact.name}</p>
+          <SoftBadge>{humanizeEnum(contact.role)}</SoftBadge>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {label} · joined {formatTimestamp(contact.registeredAt)}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {contact.email ? (
+            <RoleButton asChild tone="platform" variant="outline">
+              <a href={`mailto:${contact.email}`}>
+                <Mail className="size-3.5" />
+                {contact.email}
+              </a>
+            </RoleButton>
+          ) : null}
+          {contact.phone ? (
+            <RoleButton asChild tone="platform" variant="outline">
+              <a href={`tel:${contact.phone}`}>
+                <Phone className="size-3.5" />
+                {contact.phone}
+              </a>
+            </RoleButton>
+          ) : (
+            <span className="self-center text-[11.5px] text-muted-foreground">
+              No phone on the account
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PHOTO_KIND_ORDER = { EXTERIOR: 0, INTERIOR: 1, ROOM: 2 } as const;
 
 export const PlatformHostelReviewPageContent = memo(
   function PlatformHostelReviewPageContent() {
     const params = useParams<{ id: string }>();
     const [actionMessage, setActionMessage] = useState("");
     const [busy, setBusy] = useState(false);
-    const [tab, setTab] = useState("submission");
+    const [tab, setTab] = useState("overview");
     const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
     const [lightboxItems, setLightboxItems] = useState<LightboxItem[]>([]);
 
@@ -256,45 +443,75 @@ export const PlatformHostelReviewPageContent = memo(
     );
 
     const hostel = detail?.hostel ?? null;
+    const application = detail?.application ?? null;
     const headerActions = headerActionsForStatus(hostel?.status ?? "");
     const documents = useMemo(() => detail?.documents ?? [], [detail]);
-    const requestedDocuments = detail?.application?.requestedDocuments ?? [];
+    const requestedDocuments = application?.requestedDocuments ?? [];
 
-    // flatMap rather than map+filter so the empty case drops out without
-    // needing a type predicate to strip the nulls back off.
     const photoItems = useMemo<LightboxItem[]>(
       () =>
-        (hostel?.photos ?? []).flatMap<LightboxItem>((photo) => {
-          const src = assetHref(
-            (photo as { fileAssetId?: string }).fileAssetId,
-            photo.url,
-          );
-          return src ? [{ src, title: hostel?.name ?? "Hostel photo" }] : [];
-        }),
+        [...(hostel?.photos ?? [])]
+          .sort(
+            (a, b) =>
+              PHOTO_KIND_ORDER[a.kind ?? "INTERIOR"] -
+                PHOTO_KIND_ORDER[b.kind ?? "INTERIOR"] ||
+              (a.roomType ?? "").localeCompare(b.roomType ?? ""),
+          )
+          .flatMap<LightboxItem>((photo) => {
+            const src = assetHref(
+              (photo as { fileAssetId?: string }).fileAssetId,
+              photo.url,
+            );
+            const caption =
+              photo.kind === "ROOM"
+                ? photo.roomType || "Room"
+                : photo.kind === "EXTERIOR"
+                  ? "Outside"
+                  : "Inside";
+            return src ? [{ caption, src, title: hostel?.name ?? "Hostel photo" }] : [];
+          }),
       [hostel],
+    );
+
+    const documentViews = useMemo(
+      () =>
+        documents.map((document) => ({
+          document,
+          kind: documentKind(document),
+          src: assetHref(document.fileAssetId, document.fileUrl),
+        })),
+      [documents],
     );
 
     const documentItems = useMemo<LightboxItem[]>(
       () =>
-        documents.flatMap<LightboxItem>((document) => {
-          const src = assetHref(document.fileAssetId, document.fileUrl);
-          return src
+        documentViews.flatMap<LightboxItem>(({ document, kind, src }) =>
+          src && kind !== "file"
             ? [
                 {
                   caption: `Uploaded ${formatTimestamp(document.createdAt)}`,
+                  kind,
                   src,
                   title: document.documentType,
                 },
               ]
-            : [];
-        }),
-      [documents],
+            : [],
+        ),
+      [documentViews],
     );
 
-    const snapshotRows = useMemo(
-      () => flattenSnapshot(detail?.application?.snapshot ?? {}),
-      [detail],
-    );
+    const snapshot = useMemo(() => {
+      const groups = snapshotGroups(application?.snapshot ?? {}, hostel);
+      const changes = groups.reduce(
+        (total, group) =>
+          total +
+          (group.kind === "fields"
+            ? group.cells.filter((cell) => cell.now).length
+            : group.rows.flat().filter((cell) => cell.now).length),
+        0,
+      );
+      return { changes, groups };
+    }, [application, hostel]);
 
     function openLightbox(items: LightboxItem[], index: number) {
       setLightboxItems(items);
@@ -322,6 +539,76 @@ export const PlatformHostelReviewPageContent = memo(
         </div>
       );
     }
+
+    const owner = detail?.owner ?? null;
+    const people = [
+      owner ? { contact: owner, label: "Owner" } : null,
+      detail?.submitter && detail.submitter.id !== owner?.id
+        ? { contact: detail.submitter, label: "Filed by" }
+        : null,
+      detail?.applicant &&
+      detail.applicant.id !== owner?.id &&
+      detail.applicant.id !== detail.submitter?.id
+        ? { contact: detail.applicant, label: "Applicant" }
+        : null,
+    ].filter(
+      (person): person is { contact: NonNullable<Contact>; label: string } =>
+        person !== null,
+    );
+
+    const events: Array<{
+      at?: string | null;
+      label: string;
+      note?: string;
+      tone: "base" | "bad" | "good" | "warn";
+    }> = [
+      { at: owner?.registeredAt, label: "Owner account created", tone: "base" },
+      {
+        at: application?.submittedAt,
+        label: "Application submitted",
+        note: application?.notes,
+        tone: "base",
+      },
+      {
+        at: application?.infoRequestedAt,
+        label: "More documents requested",
+        note: application?.infoRequestNote,
+        tone: "warn",
+      },
+      {
+        at: application?.reviewedAt,
+        label:
+          application?.status === "REJECTED"
+            ? "Rejected"
+            : application?.status === "APPROVED"
+              ? "Approved"
+              : "Reviewed",
+        note: application?.rejectionReason,
+        tone: application?.status === "REJECTED" ? "bad" : "good",
+      },
+    ];
+    const trail = events
+      .filter((event) => event.at)
+      .sort((a, b) => Date.parse(a.at ?? "") - Date.parse(b.at ?? ""));
+
+    const rooms = hostel.roomConfigurations ?? [];
+    const rentMin = hostel.pricing?.monthlyRentMin;
+    const rentMax = hostel.pricing?.monthlyRentMax;
+    const rent =
+      rentMin && rentMax && rentMin !== rentMax
+        ? `${currency(rentMin)} – ${currency(rentMax).replace(/^[^\d]+/, "")}`
+        : rentMin || rentMax
+          ? currency((rentMin || rentMax) as number)
+          : "—";
+    const { lat, lng } = hostel.location;
+
+    const tabs = [
+      { key: "overview", label: "Overview" },
+      { key: "listing", label: "Listing" },
+      { key: "original", label: "Original form" },
+      { count: photoItems.length, key: "photos", label: "Photos" },
+      { count: documents.length, key: "documents", label: "Documents" },
+    ];
 
     return (
       <div className="mx-auto max-w-[1200px] space-y-4">
@@ -381,13 +668,13 @@ export const PlatformHostelReviewPageContent = memo(
           <SoftBadge tone={statusToneFromLabel(hostel.verificationStatus)}>
             KYC: {hostel.verificationStatus.replaceAll("_", " ")}
           </SoftBadge>
-          {detail?.application ? (
-            <SoftBadge tone={statusToneFromLabel(detail.application.status)}>
-              Application: {detail.application.status.replaceAll("_", " ")}
+          {application ? (
+            <SoftBadge tone={statusToneFromLabel(application.status)}>
+              Application: {application.status.replaceAll("_", " ")}
             </SoftBadge>
           ) : null}
           <span className="text-[11.5px] text-muted-foreground">
-            Submitted {formatTimestamp(detail?.application?.submittedAt)}
+            Submitted {formatTimestamp(application?.submittedAt)}
           </span>
           {hostel.status === "PUBLISHED" ? (
             <RoleButton
@@ -413,261 +700,329 @@ export const PlatformHostelReviewPageContent = memo(
           ) : null}
         </div>
 
-        <Panel>
-          <TabBar className="mb-3" onChange={setTab} tabs={TABS} value={tab} />
+        <TabBar onChange={setTab} tabs={tabs} value={tab} />
 
-          {/* ── Who submitted it, and when ─────────────────────────── */}
-          {tab === "submission" ? (
-            <div className="grid gap-3 lg:grid-cols-2">
-              <DetailSection title="Submitted By">
-                <DetailField
-                  label="Name"
-                  value={detail?.submitter?.name ?? detail?.owner?.name ?? "—"}
-                />
-                <DetailField
-                  label="Email"
-                  value={detail?.submitter?.email ?? detail?.owner?.email ?? "—"}
-                />
-                <DetailField
-                  label="Phone"
-                  value={detail?.submitter?.phone ?? detail?.owner?.phone ?? "—"}
-                />
-                <DetailField
-                  label="Account role"
-                  value={detail?.submitter?.role ?? detail?.owner?.role ?? "—"}
-                />
-                <DetailField
-                  label="Account created"
-                  value={formatTimestamp(
-                    detail?.submitter?.registeredAt ?? detail?.owner?.registeredAt,
-                  )}
-                />
-                <DetailField
-                  label="Submitted on"
-                  value={formatTimestamp(detail?.application?.submittedAt)}
-                />
-              </DetailSection>
-
-              <DetailSection title="Hostel Owner">
-                <DetailField label="Name" value={detail?.owner?.name ?? "—"} />
-                <DetailField label="Email" value={detail?.owner?.email ?? "—"} />
-                <DetailField label="Phone" value={detail?.owner?.phone ?? "—"} />
-                <DetailField label="Owner ID" value={hostel.ownerId} />
-                {detail?.applicant && detail.applicant.id !== detail.owner?.id ? (
-                  <DetailField
-                    label="Applicant"
-                    value={`${detail.applicant.name} (${detail.applicant.email})`}
-                  />
-                ) : null}
-              </DetailSection>
-
-              <DetailSection title="Review Trail">
-                <DetailField
-                  label="Application status"
-                  value={detail?.application?.status?.replaceAll("_", " ") ?? "—"}
-                />
-                <DetailField
-                  label="Last reviewed"
-                  value={formatTimestamp(detail?.application?.reviewedAt)}
-                />
-                <DetailField
-                  label="Info requested"
-                  value={formatTimestamp(detail?.application?.infoRequestedAt)}
-                />
-                {detail?.application?.rejectionReason ? (
-                  <DetailField
-                    label="Rejection reason"
-                    value={detail.application.rejectionReason}
-                  />
-                ) : null}
-                {detail?.application?.infoRequestNote ? (
-                  <DetailField
-                    label="Note to owner"
-                    value={detail.application.infoRequestNote}
-                  />
-                ) : null}
-              </DetailSection>
-
-              <DetailSection title="Quick Contact">
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {detail?.owner?.email ? (
-                    <RoleButton asChild tone="platform" variant="outline">
-                      <a href={`mailto:${detail.owner.email}`}>
-                        <Mail className="size-3.5" />
-                        Email owner
-                      </a>
-                    </RoleButton>
-                  ) : null}
-                  {detail?.owner?.phone ? (
-                    <RoleButton asChild tone="platform" variant="outline">
-                      <a href={`tel:${detail.owner.phone}`}>
-                        <Phone className="size-3.5" />
-                        Call owner
-                      </a>
-                    </RoleButton>
-                  ) : null}
-                  {hostel.contact?.phone ? (
-                    <RoleButton asChild tone="platform" variant="outline">
-                      <a href={`tel:${hostel.contact.phone}`}>
-                        <Building2 className="size-3.5" />
-                        Hostel line
-                      </a>
-                    </RoleButton>
-                  ) : null}
-                </div>
-              </DetailSection>
-
-              <DetailSection title="Booking Payouts">
-                <ReviewPayoutAccount hostelId={params.id} />
-              </DetailSection>
-            </div>
-          ) : null}
-
-          {/* ── Everything the owner typed into the form ───────────── */}
-          {tab === "form" ? (
+        {/* ── Who is behind it, and what has happened so far ───────── */}
+        {tab === "overview" ? (
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-3">
-              <div className="grid gap-3 lg:grid-cols-2">
-                <DetailSection title="Listing Basics">
-                  <DetailField label="Hostel name" value={hostel.name} />
-                  <DetailField label="Slug" value={hostel.slug} />
-                  <DetailField
-                    label="Type"
-                    value={hostel.hostelType.replaceAll("_", " ")}
-                  />
-                  <DetailField
-                    label="Room types"
-                    value={hostel.roomTypes.join(", ") || "—"}
-                  />
-                </DetailSection>
-
-                <DetailSection title="Location">
-                  <DetailField label="Address" value={hostel.location.address || "—"} />
-                  <DetailField label="Area" value={hostel.location.area || "—"} />
-                  <DetailField label="City" value={hostel.location.city || "—"} />
-                </DetailSection>
-
-                <DetailSection title="Contact">
-                  <DetailField label="Phone" value={hostel.contact?.phone || "—"} />
-                  <DetailField label="Email" value={hostel.contact?.email || "—"} />
-                </DetailSection>
-
-                <DetailSection title="Pricing">
-                  <DetailField
-                    label="Monthly rent from"
-                    value={
-                      hostel.pricing?.monthlyRentMin
-                        ? currency(hostel.pricing.monthlyRentMin)
-                        : "—"
-                    }
-                  />
-                  <DetailField
-                    label="Monthly rent to"
-                    value={
-                      hostel.pricing?.monthlyRentMax
-                        ? currency(hostel.pricing.monthlyRentMax)
-                        : "—"
-                    }
-                  />
-                </DetailSection>
-
-                <DetailSection title="Capacity">
-                  <DetailField
-                    label="Total rooms"
-                    value={String(hostel.capacitySummary?.totalRooms ?? "—")}
-                  />
-                  <DetailField
-                    label="Total beds"
-                    value={String(hostel.capacitySummary?.totalBeds ?? "—")}
-                  />
-                  <DetailField
-                    label="Vacant beds"
-                    value={String(hostel.capacitySummary?.vacantBeds ?? "—")}
-                  />
-                </DetailSection>
-
-                <DetailSection title="Food">
-                  <DetailField
-                    label="Meals per day"
-                    value={String(hostel.food?.mealsPerDay ?? "—")}
-                  />
-                  <DetailField
-                    label="Vegetarian"
-                    value={hostel.food?.hasVeg ? "Yes" : "No"}
-                  />
-                  <DetailField
-                    label="Non-vegetarian"
-                    value={hostel.food?.hasNonVeg ? "Yes" : "No"}
-                  />
-                  <DetailField label="Notes" value={hostel.food?.notes || "—"} />
-                </DetailSection>
-              </div>
-
-              <DetailSection title="Description">
-                <p className="py-1 text-[12px] leading-5 text-muted-foreground">
-                  {hostel.description || "No description was provided."}
-                </p>
-              </DetailSection>
-
-              <div className="grid gap-3 lg:grid-cols-2">
-                <DetailSection title={`Facilities (${hostel.facilities.length})`}>
-                  {hostel.facilities.length === 0 ? (
-                    <p className="py-1 text-[11.5px] text-muted-foreground">
-                      None listed.
-                    </p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {hostel.facilities.map((facility) => (
-                        <SoftBadge key={facility} tone="teal">
-                          {facility}
-                        </SoftBadge>
-                      ))}
-                    </div>
-                  )}
-                </DetailSection>
-
-                <DetailSection title={`House Rules (${hostel.rules.length})`}>
-                  {hostel.rules.length === 0 ? (
-                    <p className="py-1 text-[11.5px] text-muted-foreground">
-                      None listed.
-                    </p>
-                  ) : (
-                    <ul className="space-y-1 pt-1">
-                      {hostel.rules.map((rule) => (
-                        <li
-                          className="flex items-start gap-1.5 text-[11.5px] text-muted-foreground"
-                          key={rule}
-                        >
-                          <span className="mt-1.5 block size-1 shrink-0 rounded-full bg-role-platform" />
-                          {rule}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </DetailSection>
-              </div>
-
-              {snapshotRows.length > 0 ? (
-                <DetailSection title="Original Form Submission">
-                  <p className="pb-1.5 text-[11px] leading-4 text-muted-foreground">
-                    Captured verbatim when the owner submitted the registration form —
-                    compare against the live record above to spot post-submission edits.
+              <SectionCard title="People">
+                {people.length === 0 ? (
+                  <p className="text-[12px] text-muted-foreground">
+                    The owner account could not be found.
                   </p>
-                  {snapshotRows.map((row, index) => (
-                    <DetailField
-                      key={`${row.label}-${index}`}
-                      label={row.label}
-                      value={row.value}
+                ) : (
+                  people.map((person) => (
+                    <PersonRow
+                      contact={person.contact}
+                      key={`${person.label}-${person.contact.id}`}
+                      label={person.label}
                     />
-                  ))}
-                </DetailSection>
-              ) : null}
-            </div>
-          ) : null}
+                  ))
+                )}
+              </SectionCard>
 
-          {/* ── Photos with in-site lightbox ───────────────────────── */}
-          {tab === "photos" ? (
-            photoItems.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 py-12 text-center">
+              <SectionCard title="Booking payouts">
+                <ReviewPayoutAccount hostelId={params.id} />
+              </SectionCard>
+            </div>
+
+            <SectionCard title="Review trail">
+              {trail.length === 0 ? (
+                <p className="text-[12px] text-muted-foreground">Nothing recorded yet.</p>
+              ) : (
+                <ol className="space-y-4 border-l border-border pl-4">
+                  {trail.map((event) => (
+                    <li className="relative" key={event.label}>
+                      <span
+                        className={cn(
+                          "absolute -left-[21.5px] top-1 size-2.5 rounded-full ring-4 ring-card",
+                          event.tone === "bad"
+                            ? "bg-rose-500"
+                            : event.tone === "warn"
+                              ? "bg-amber-500"
+                              : event.tone === "good"
+                                ? "bg-role-platform"
+                                : "bg-muted-foreground/50",
+                        )}
+                      />
+                      <p className="text-[12.5px] font-semibold text-foreground">
+                        {event.label}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {formatTimestamp(event.at)}
+                      </p>
+                      {event.note ? (
+                        <p className="mt-1 rounded-md bg-muted/50 px-2 py-1.5 text-[11.5px] text-foreground">
+                          {event.note}
+                        </p>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </SectionCard>
+          </div>
+        ) : null}
+
+        {/* ── The live listing, as the public sees it ────────────── */}
+        {tab === "listing" ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <Stat label="Type" value={humanizeEnum(hostel.hostelType)} />
+              <Stat label="Rooms" value={hostel.capacitySummary?.totalRooms ?? "—"} />
+              <Stat label="Beds" value={hostel.capacitySummary?.totalBeds ?? "—"} />
+              <Stat label="Vacant beds" value={hostel.capacitySummary?.vacantBeds ?? "—"} />
+              <Stat label="Meals a day" value={hostel.food?.mealsPerDay ?? "—"} />
+              <Stat label="Rent a month" value={rent} />
+            </div>
+
+            {rooms.length > 0 ? (
+              <SectionCard title="Rate card">
+                <div className="-mx-1 overflow-x-auto">
+                  <DataTable className="min-w-[560px]">
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <Th>Room type</Th>
+                        <Th align="right">Rooms</Th>
+                        <Th align="right">Beds / room</Th>
+                        <Th align="right">Vacant beds</Th>
+                        <Th>Meals</Th>
+                        <Th align="right">Rent a month</Th>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rooms.map((room) => (
+                        <TableRow key={room.roomType}>
+                          <TableCell className="font-semibold text-foreground">
+                            {room.roomType}
+                          </TableCell>
+                          <TableCell className="text-right">{room.rooms}</TableCell>
+                          <TableCell className="text-right">{room.bedsPerRoom}</TableCell>
+                          <TableCell className="text-right">{room.vacantBeds}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {room.mealInclusion}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-foreground">
+                            {currency(room.monthlyRent)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </DataTable>
+                </div>
+              </SectionCard>
+            ) : null}
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <SectionCard title="Listing">
+                <Facts
+                  items={[
+                    { label: "Hostel name", value: hostel.name },
+                    { label: "Slug", value: hostel.slug },
+                    {
+                      label: "Room types",
+                      value: hostel.roomTypes.join(", ") || "—",
+                    },
+                    {
+                      label: "Floors",
+                      value: hostel.totalFloors ? hostel.totalFloors : "—",
+                    },
+                  ]}
+                />
+              </SectionCard>
+
+              <SectionCard title="Location & contact">
+                <Facts
+                  items={[
+                    { label: "Area", value: hostel.location.area || "—" },
+                    { label: "City", value: hostel.location.city || "—" },
+                    { label: "Address", value: hostel.location.address || "—" },
+                    {
+                      label: "Map pin",
+                      value:
+                        lat != null && lng != null ? (
+                          <a
+                            className="inline-flex items-center gap-1 text-role-platform hover:underline"
+                            href={`https://www.google.com/maps?q=${lat},${lng}`}
+                            rel="noreferrer"
+                            target="_blank"
+                          >
+                            <MapPin className="size-3.5" />
+                            Open in Maps
+                          </a>
+                        ) : (
+                          "—"
+                        ),
+                    },
+                    {
+                      label: "Hostel phone",
+                      value: hostel.contact?.phone ? (
+                        <a
+                          className="text-role-platform hover:underline"
+                          href={`tel:${hostel.contact.phone}`}
+                        >
+                          {hostel.contact.phone}
+                        </a>
+                      ) : (
+                        "—"
+                      ),
+                    },
+                    {
+                      label: "Hostel email",
+                      value: hostel.contact?.email ? (
+                        <a
+                          className="text-role-platform hover:underline"
+                          href={`mailto:${hostel.contact.email}`}
+                        >
+                          {hostel.contact.email}
+                        </a>
+                      ) : (
+                        "—"
+                      ),
+                    },
+                  ]}
+                />
+              </SectionCard>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+              <SectionCard title="Description">
+                <p className="text-[13px] leading-6 text-foreground">
+                  {hostel.description || (
+                    <span className="text-muted-foreground">No description.</span>
+                  )}
+                </p>
+              </SectionCard>
+
+              <SectionCard title="Food">
+                <Facts
+                  items={[
+                    { label: "Vegetarian", value: hostel.food?.hasVeg ? "Yes" : "No" },
+                    {
+                      label: "Non-vegetarian",
+                      value: hostel.food?.hasNonVeg ? "Yes" : "No",
+                    },
+                    { label: "Notes", value: hostel.food?.notes || "—" },
+                  ]}
+                />
+              </SectionCard>
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-2">
+              <SectionCard title={`Facilities · ${hostel.facilities.length}`}>
+                {hostel.facilities.length === 0 ? (
+                  <p className="text-[12px] text-muted-foreground">None listed.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {hostel.facilities.map((facility) => (
+                      <SoftBadge key={facility} tone="teal">
+                        {facility}
+                      </SoftBadge>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+
+              <SectionCard title={`House rules · ${hostel.rules.length}`}>
+                {hostel.rules.length === 0 ? (
+                  <p className="text-[12px] text-muted-foreground">None listed.</p>
+                ) : (
+                  <ol className="space-y-2">
+                    {hostel.rules.map((rule, index) => (
+                      <li className="flex gap-2.5 text-[12.5px] text-foreground" key={rule}>
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-role-platform-soft text-[10.5px] font-bold text-role-platform">
+                          {index + 1}
+                        </span>
+                        <span className="pt-px">{rule}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </SectionCard>
+            </div>
+          </div>
+        ) : null}
+
+        {/* ── What the owner typed, frozen at submission ───────────── */}
+        {tab === "original" ? (
+          snapshot.groups.length === 0 ? (
+            <EmptyState label="No form submission was stored for this hostel." />
+          ) : (
+            <div className="space-y-3">
+              <div
+                className={cn(
+                  "flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-medium",
+                  snapshot.changes > 0
+                    ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+                    : "border-border bg-muted/30 text-muted-foreground",
+                )}
+              >
+                {snapshot.changes > 0 ? (
+                  <History className="size-4 shrink-0" />
+                ) : (
+                  <CircleCheck className="size-4 shrink-0 text-role-platform" />
+                )}
+                {snapshot.changes > 0
+                  ? `${snapshot.changes} value${snapshot.changes === 1 ? " has" : "s have"} changed since the owner submitted.`
+                  : "Nothing has changed since the owner submitted."}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {snapshot.groups.map((group) =>
+                  group.kind === "fields" ? (
+                    <SectionCard key={group.title} title={group.title}>
+                      <Facts
+                        items={group.cells.map((cell) => ({
+                          label: cell.label,
+                          value: <SnapshotValue cell={cell} />,
+                        }))}
+                      />
+                    </SectionCard>
+                  ) : null,
+                )}
+              </div>
+
+              {snapshot.groups.map((group) =>
+                group.kind === "table" ? (
+                  <SectionCard key={group.title} title={group.title}>
+                    <div className="-mx-1 overflow-x-auto">
+                      <DataTable>
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            {group.columns.map((column) => (
+                              <Th key={column.key}>{column.label}</Th>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.rows.map((row, rowIndex) => (
+                            <TableRow key={rowIndex}>
+                              {row.map((cell, cellIndex) => (
+                                <TableCell
+                                  className="align-top"
+                                  key={group.columns[cellIndex]?.key}
+                                >
+                                  <SnapshotValue cell={cell} />
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </DataTable>
+                    </div>
+                  </SectionCard>
+                ) : null,
+              )}
+            </div>
+          )
+        ) : null}
+
+        {/* ── Photos with in-site lightbox ───────────────────────── */}
+        {tab === "photos" ? (
+          photoItems.length === 0 ? (
+            <SectionCard>
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
                 <span className="flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <ImageOff className="size-5" />
                 </span>
@@ -678,140 +1033,163 @@ export const PlatformHostelReviewPageContent = memo(
                   A listing without photos should not be published.
                 </p>
               </div>
-            ) : (
-              <>
-                <p className="mb-2.5 text-[11.5px] text-muted-foreground">
-                  {photoItems.length} photo{photoItems.length === 1 ? "" : "s"} — click
-                  any image to open it full size.
-                </p>
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-                  {photoItems.map((item, index) => (
-                    <button
-                      className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-border bg-muted transition hover:border-role-platform/50"
-                      key={`${item.src}-${index}`}
-                      onClick={() => openLightbox(photoItems, index)}
-                      type="button"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element -- remote
-                          R2 asset behind a redirecting presign route. */}
-                      <img
-                        alt={`${hostel.name} photo ${index + 1}`}
-                        className="size-full object-cover transition group-hover:scale-[1.03]"
-                        loading="lazy"
-                        src={item.src}
-                      />
-                    </button>
-                  ))}
-                </div>
-              </>
-            )
-          ) : null}
+            </SectionCard>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {photoItems.map((item, index) => (
+                <button
+                  className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-border bg-muted transition hover:border-role-platform/50"
+                  key={`${item.src}-${index}`}
+                  onClick={() => openLightbox(photoItems, index)}
+                  type="button"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- remote
+                      R2 asset behind a redirecting presign route. */}
+                  <img
+                    alt={`${hostel.name} — ${item.caption}`}
+                    className="size-full object-cover transition group-hover:scale-[1.03]"
+                    loading="lazy"
+                    src={item.src}
+                  />
+                  <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[10.5px] font-semibold text-white">
+                    {item.caption}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )
+        ) : null}
 
-          {/* ── Uploaded paperwork ─────────────────────────────────── */}
-          {tab === "documents" ? (
-            <div className="space-y-3">
-              {documents.length === 0 ? (
-                <EmptyState label="No documents were uploaded for this hostel." />
-              ) : (
-                <DataTable className="min-w-[620px]">
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <Th>Document</Th>
-                      <Th>Status</Th>
-                      <Th>Uploaded</Th>
-                      <Th align="right">File</Th>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {documents.map((document, index) => {
-                      const hasFile = Boolean(
-                        assetHref(document.fileAssetId, document.fileUrl),
-                      );
-
-                      return (
-                        <TableRow key={document.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-2 font-semibold text-foreground">
-                              <FileText className="size-3.5 text-role-platform" />
-                              {document.documentType}
-                            </div>
-                            {document.rejectionReason ? (
-                              <p className="mt-0.5 text-[11px] text-rose-500">
-                                {document.rejectionReason}
-                              </p>
-                            ) : null}
-                          </TableCell>
-                          <TableCell>
-                            <SoftBadge tone={statusToneFromLabel(document.status)}>
-                              {document.status.replaceAll("_", " ")}
-                            </SoftBadge>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">
-                            {formatTimestamp(document.createdAt)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {hasFile ? (
-                              <button
-                                className="text-[11.5px] font-semibold text-role-platform transition hover:underline"
-                                onClick={() =>
-                                  openLightbox(
-                                    documentItems,
-                                    documentItems.findIndex(
-                                      (item) => item.title === document.documentType,
-                                    ) === -1
-                                      ? index
-                                      : documentItems.findIndex(
-                                          (item) => item.title === document.documentType,
-                                        ),
-                                  )
-                                }
-                                type="button"
-                              >
-                                View
-                              </button>
-                            ) : (
-                              <span className="text-[11.5px] text-muted-foreground">
-                                No file
-                              </span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </DataTable>
-              )}
-
-              {requestedDocuments.length > 0 ? (
-                <DetailSection title="Documents Requested From Owner">
+        {/* ── Uploaded paperwork, shown in place ──────────────────── */}
+        {tab === "documents" ? (
+          <div className="space-y-3">
+            {requestedDocuments.length > 0 ? (
+              <SectionCard
+                actions={
+                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Clock3 className="size-3" />
+                    {formatTimestamp(application?.infoRequestedAt)}
+                  </span>
+                }
+                title="Requested from owner"
+              >
+                <ul className="space-y-1.5">
                   {requestedDocuments.map((document, index) => (
-                    <div
-                      className="flex items-start gap-2 border-b border-border/50 py-1.5 last:border-0"
+                    <li
+                      className="flex items-start gap-2 text-[12.5px]"
                       key={`${document.documentType}-${index}`}
                     >
-                      <ShieldQuestion className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-                      <span className="text-[11.5px]">
+                      <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                      <span>
                         <span className="font-semibold text-foreground">
                           {document.documentType}
                         </span>
                         {document.note ? (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            — {document.note}
-                          </span>
+                          <span className="text-muted-foreground"> — {document.note}</span>
                         ) : null}
                       </span>
-                    </div>
+                    </li>
                   ))}
-                  <p className="flex items-center gap-1.5 pt-1.5 text-[11px] text-muted-foreground">
-                    <Clock3 className="size-3" />
-                    Requested {formatTimestamp(detail?.application?.infoRequestedAt)}
-                  </p>
-                </DetailSection>
-              ) : null}
-            </div>
-          ) : null}
-        </Panel>
+                </ul>
+              </SectionCard>
+            ) : null}
+
+            {documentViews.length === 0 ? (
+              <EmptyState label="No documents were uploaded for this hostel." />
+            ) : (
+              <div
+                className={cn("grid gap-3", documentViews.length > 1 && "lg:grid-cols-2")}
+              >
+                {documentViews.map(({ document, kind, src }) => {
+                  const lightboxAt = documentItems.findIndex((item) => item.src === src);
+
+                  return (
+                    <SectionCard
+                      actions={
+                        <SoftBadge tone={statusToneFromLabel(document.status)}>
+                          {document.status.replaceAll("_", " ")}
+                        </SoftBadge>
+                      }
+                      key={document.id}
+                      title={document.documentType}
+                    >
+                      {!src ? (
+                        <p className="rounded-lg bg-muted/40 py-10 text-center text-[12px] text-muted-foreground">
+                          No file attached.
+                        </p>
+                      ) : kind === "pdf" ? (
+                        <iframe
+                          className="h-[560px] w-full rounded-lg border border-border bg-muted/40"
+                          src={src}
+                          title={document.documentType}
+                        />
+                      ) : kind === "image" ? (
+                        <button
+                          className="group relative block w-full overflow-hidden rounded-lg border border-border bg-muted/40"
+                          onClick={() => openLightbox(documentItems, lightboxAt)}
+                          type="button"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- remote
+                              R2 asset behind a redirecting presign route. */}
+                          <img
+                            alt={document.documentType}
+                            className="mx-auto max-h-[560px] w-full object-contain"
+                            src={src}
+                          />
+                          <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-1 text-[10.5px] font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                            <Maximize2 className="size-3" />
+                            Zoom
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 rounded-lg bg-muted/40 py-10 text-center">
+                          <FileText className="size-8 text-muted-foreground" />
+                          <p className="text-[12px] text-muted-foreground">
+                            {document.fileName || "This file"} can&apos;t be previewed.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted-foreground">
+                        <span>Uploaded {formatTimestamp(document.createdAt)}</span>
+                        {document.fileName ? (
+                          <span className="min-w-0 truncate">{document.fileName}</span>
+                        ) : null}
+                        {src ? (
+                          kind === "file" ? (
+                            <a
+                              className="ml-auto inline-flex items-center gap-1 font-semibold text-role-platform hover:underline"
+                              href={src}
+                              rel="noreferrer"
+                              target="_blank"
+                            >
+                              <ExternalLink className="size-3.5" />
+                              Open file
+                            </a>
+                          ) : (
+                            <button
+                              className="ml-auto inline-flex items-center gap-1 font-semibold text-role-platform hover:underline"
+                              onClick={() => openLightbox(documentItems, lightboxAt)}
+                              type="button"
+                            >
+                              <Maximize2 className="size-3.5" />
+                              Full screen
+                            </button>
+                          )
+                        ) : null}
+                      </div>
+                      {document.rejectionReason ? (
+                        <p className="mt-1.5 text-[11.5px] font-medium text-rose-600 dark:text-rose-400">
+                          {document.rejectionReason}
+                        </p>
+                      ) : null}
+                    </SectionCard>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {lightboxIndex !== null ? (
           <MediaLightbox

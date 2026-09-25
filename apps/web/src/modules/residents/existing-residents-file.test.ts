@@ -104,7 +104,7 @@ describe("reading a filled file", () => {
     XLSX.utils.sheet_add_aoa(
       sheet,
       [
-        ["Ram Thapa", "9841234567", "Double", "", "10000", "1", "2500", "2082-04-15", "RAM@example.com"],
+        ["Ram Thapa", "9841234567", "Double", "12000", "10000", "1", "2500", "2082-04-15", "RAM@example.com"],
         ["Sita KC", "9801234567", "Double", "11000", "", "0", "", "", ""],
       ],
       { origin: "A2" },
@@ -134,13 +134,35 @@ describe("reading a filled file", () => {
         email: "",
         fullName: "Sita KC",
         joinedDate: null,
-        monthlyRent: 11000,
+        monthlyRent: null,
         oldDues: 0,
         paidTill: "2083-06",
         phone: "9801234567",
         roomType: "Double",
       },
     ]);
+  });
+
+  it("fills Monthly rent from the room type, looked up in the room list", () => {
+    const template = buildExistingResidentsTemplate({
+      currentMonth: "Aswin 2083",
+      hostelName: "Education Light",
+      roomTypes: [
+        { monthlyRent: 12000, roomType: "Double" },
+        { monthlyRent: 16000, roomType: "Single Room" },
+      ],
+    });
+    const book = XLSX.read(template, { cellFormula: true, type: "buffer" });
+    const formula = book.Sheets.Residents!.D2!.f!;
+    const [, from, to] = /\$A\$(\d+):\$B\$(\d+)/.exec(formula)!;
+    const help = book.Sheets["How to fill"]!;
+
+    expect(formula).toContain("VLOOKUP($C2,'How to fill'!");
+    expect(book.Sheets.Residents!.D501!.f).toContain("$C501");
+    expect([help[`A${from}`]!.v, help[`B${from}`]!.v]).toEqual(["Double", 12000]);
+    expect([help[`A${to}`]!.v, help[`B${to}`]!.v]).toEqual(["Single Room", 16000]);
+    // The formulas alone are not a resident.
+    expect(() => readExistingResidentsFile(template, "2083-06")).toThrow("No residents were found");
   });
 
   it("does not read the example on the How to fill sheet as a resident", () => {
@@ -164,7 +186,7 @@ describe("reading a filled file", () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({
       fullName: "Hari Shrestha",
-      monthlyRent: 9000,
+      monthlyRent: null,
       paidTill: "2083-04",
       phone: "9841234567",
       roomType: "Single",
@@ -189,10 +211,7 @@ describe("reading a filled file", () => {
     const result = readExistingResidentsFile(file, "2083-06");
 
     expect(result.rows[0]).toMatchObject({ monthlyRent: null, paidTill: null });
-    expect(result.notes).toEqual([
-      'Line 2: could not read Monthly rent "twelve".',
-      'Line 2: could not read Rent paid till "last month".',
-    ]);
+    expect(result.notes).toEqual(['Line 2: could not read Rent paid till "last month".']);
   });
 
   it("refuses a file with no name and phone columns", () => {
@@ -222,6 +241,6 @@ describe("reading a filled file", () => {
       paidTill: "2083-05",
       phone: "9841234567",
     });
-    expect(result.rows[1]).toMatchObject({ fullName: "सीता केसी", monthlyRent: 11000, paidTill: "2083-06" });
+    expect(result.rows[1]).toMatchObject({ fullName: "सीता केसी", monthlyRent: null, paidTill: "2083-06" });
   });
 });

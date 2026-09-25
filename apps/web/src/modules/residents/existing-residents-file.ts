@@ -64,6 +64,7 @@ export const EXISTING_RESIDENT_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: "fullName", label: "Full name" },
   { key: "phone", label: "Phone" },
   { key: "roomType", label: "Room type" },
+  // Filled by a formula from the room type; read back, never used — rent is the rate card's.
   { key: "monthlyRent", label: "Monthly rent (Rs)" },
   { key: "depositPaid", label: "Deposit paid (Rs)" },
   { key: "monthsDue", label: "Months due" },
@@ -240,7 +241,6 @@ export function readExistingResidentsFile(
     const cannotRead = (label: string, text: string) =>
       notes.push(`Line ${lineNumber}: could not read ${label} "${text}".`);
 
-    const rent = readRupees(value("monthlyRent"));
     const deposit = readRupees(value("depositPaid"));
     const dues = readRupees(value("oldDues"));
     const monthsDue = readMonthsDue(value("monthsDue"));
@@ -249,7 +249,6 @@ export function readExistingResidentsFile(
       typeof monthsDue === "number" ? addBsMonths(currentPeriod, -monthsDue) : paidTillText;
     const joined = readJoinedDate(value("joinedDate"));
 
-    if (rent === undefined) cannotRead("Monthly rent", value("monthlyRent"));
     if (deposit === undefined) cannotRead("Deposit paid", value("depositPaid"));
     if (dues === undefined) cannotRead("Old dues", value("oldDues"));
     if (monthsDue === undefined) cannotRead("Months due", value("monthsDue"));
@@ -263,7 +262,7 @@ export function readExistingResidentsFile(
       email: value("email").toLowerCase(),
       fullName: value("fullName").replace(/\s+/g, " "),
       joinedDate: joined ?? null,
-      monthlyRent: rent ?? null,
+      monthlyRent: null,
       oldDues: dues ?? 0,
       paidTill: typeof paidTill === "string" ? paidTill : null,
       phone: readPhone(value("phone")),
@@ -288,9 +287,63 @@ export function buildExistingResidentsTemplate(input: {
 }): Buffer {
   const book = XLSX.utils.book_new();
 
+  const firstRoom = input.roomTypes[0];
+  const helpRows: (number | string)[][] = [
+    [`Residents already living in ${input.hostelName}`],
+    [],
+    ["Fill one line for each resident on the Residents sheet. Do not change the first line."],
+    [],
+    ["Column", "What to write", "Needed"],
+    ["Full name", "First and last name", "Yes"],
+    ["Phone", "Mobile number", "Yes"],
+    ["Room type", "One of the room types below, written the same way", "Yes"],
+    ["Monthly rent (Rs)", "Fills itself from the room type, from the rate card. Do not type in it", "Auto"],
+    ["Deposit paid (Rs)", "Security deposit you are holding for them", "No"],
+    [
+      "Months due",
+      `Months of rent not paid. 0 = ${input.currentMonth} is paid. 1 = only ${input.currentMonth} is not paid. 2 = this month and last month are not paid.`,
+      "Yes",
+    ],
+    ["Old dues (Rs)", "Any other money they still owe you from before", "No"],
+    [
+      "Joined date",
+      "Date they joined, like 2082-04-15 (Nepali date). Empty = the 1st of the month their rent is paid till",
+      "No",
+    ],
+    ["Email", "Their email, if they use one", "No"],
+    [],
+    ["Example"],
+    EXISTING_RESIDENT_COLUMNS.map((column) => column.label),
+    ["Ram Thapa", "9841234567", firstRoom?.roomType ?? "Double", firstRoom?.monthlyRent ?? "", "10000", "1", "2500", "2082-04-15", ""],
+    ["Sita KC", "9801234567", firstRoom?.roomType ?? "Double", firstRoom?.monthlyRent ?? "", "10000", "0", "", "", ""],
+    [],
+    ["Room types in this hostel", "Monthly rent from the rate card (Rs)"],
+  ];
+  // 1-based Excel rows of the room list, which the rent column looks up.
+  const roomsFrom = helpRows.length + 1;
+
+  helpRows.push(
+    ...input.roomTypes.map((room) => [room.roomType, room.monthlyRent ?? ""]),
+    [],
+    ["Paid in advance? Write 0, then change it in the list after you upload."],
+  );
+
+  const roomsTo = roomsFrom + input.roomTypes.length - 1;
   const residents = XLSX.utils.aoa_to_sheet([
     EXISTING_RESIDENT_COLUMNS.map((column) => column.label),
   ]);
+
+  if (input.roomTypes.length) {
+    // Excel works these out when it opens the file: SheetJS writes no cached values.
+    for (let line = 2; line <= MAX_ROWS + 1; line += 1) {
+      residents[`D${line}`] = {
+        f: `IF($C${line}="","",IFERROR(VLOOKUP($C${line},'How to fill'!$A$${roomsFrom}:$B$${roomsTo},2,FALSE),""))`,
+        t: "n",
+      };
+    }
+
+    residents["!ref"] = `A1:I${MAX_ROWS + 1}`;
+  }
 
   residents["!cols"] = [
     { wch: 26 },
@@ -304,41 +357,7 @@ export function buildExistingResidentsTemplate(input: {
     { wch: 28 },
   ];
 
-  const firstRoom = input.roomTypes[0]?.roomType ?? "Double";
-
-  const help = XLSX.utils.aoa_to_sheet([
-    [`Residents already living in ${input.hostelName}`],
-    [],
-    ["Fill one line for each resident on the Residents sheet. Do not change the first line."],
-    [],
-    ["Column", "What to write", "Needed"],
-    ["Full name", "First and last name", "Yes"],
-    ["Phone", "Mobile number", "Yes"],
-    ["Room type", "One of the room types below, written the same way", "Yes"],
-    ["Monthly rent (Rs)", "Leave empty if they pay the normal rate for the room", "No"],
-    ["Deposit paid (Rs)", "Security deposit you are holding for them", "No"],
-    [
-      "Months due",
-      `Months of rent not paid. 0 = ${input.currentMonth} is paid. 1 = only ${input.currentMonth} is not paid. 2 = this month and last month are not paid.`,
-      "Yes",
-    ],
-    ["Old dues (Rs)", "Any other money they still owe you from before", "No"],
-    ["Joined date", "Date they joined, like 2082-04-15 (Nepali date)", "No"],
-    ["Email", "Their email, if they use one", "No"],
-    [],
-    ["Example"],
-    EXISTING_RESIDENT_COLUMNS.map((column) => column.label),
-    ["Ram Thapa", "9841234567", firstRoom, "", "10000", "1", "2500", "2082-04-15", ""],
-    ["Sita KC", "9801234567", firstRoom, "11000", "10000", "0", "", "", ""],
-    [],
-    ["Room types in this hostel", "Normal monthly rent (Rs)"],
-    ...input.roomTypes.map((room) => [
-      room.roomType,
-      room.monthlyRent === null ? "" : String(room.monthlyRent),
-    ]),
-    [],
-    ["Paid in advance? Write 0, then change it in the list after you upload."],
-  ]);
+  const help = XLSX.utils.aoa_to_sheet(helpRows);
 
   help["!cols"] = [{ wch: 26 }, { wch: 60 }, { wch: 10 }];
 

@@ -64,6 +64,8 @@ import {
   ID_PROOF_TYPES,
   type IdProofType,
   facilityOptions,
+  BEDS_BY_ROOM_TYPE,
+  editRoomRow,
   numberValue,
   roomTypeOptions,
   RULES_TEMPLATES,
@@ -328,7 +330,7 @@ const STEPS: RegistrationStep[] = [
 
 function newRoom(): RoomRow {
   return {
-    bedsPerRoom: "",
+    bedsPerRoom: String(BEDS_BY_ROOM_TYPE["Single Room"]),
     id: crypto.randomUUID(),
     monthlyRent: "",
     rooms: "",
@@ -2645,7 +2647,7 @@ export function TeamRegisterHostelPage() {
                                 setRooms((prev) =>
                                   prev.map((entry) =>
                                     entry.id === room.id
-                                      ? { ...entry, roomType: event.target.value }
+                                      ? editRoomRow(entry, { roomType: event.target.value })
                                       : entry,
                                   ),
                                 );
@@ -2675,7 +2677,7 @@ export function TeamRegisterHostelPage() {
                                     setRooms((prev) =>
                                       prev.map((entry) =>
                                         entry.id === room.id
-                                          ? { ...entry, [key]: event.target.value }
+                                          ? editRoomRow(entry, { [key]: event.target.value })
                                           : entry,
                                       ),
                                     );

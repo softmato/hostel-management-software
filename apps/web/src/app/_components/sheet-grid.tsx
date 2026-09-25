@@ -387,7 +387,7 @@ export function SheetGrid<Row extends SheetGridRow>({
                         {/* The tint sits inside, so the pinned first column stays solid when scrolled under. */}
                         <div
                           className={cn(
-                            note ? "bg-warning/15" : locked && "bg-muted/50",
+                            note ? "bg-warning/15" : (locked || column.readOnly) && "bg-muted/50",
                             isFlagged?.(row, column.key) && "ring-1 ring-inset ring-warning",
                           )}
                         >

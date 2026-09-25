@@ -265,6 +265,50 @@ export function numberValue(value: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+/** Beds a room of this kind has. A dormitory varies, so it has no default. */
+export const BEDS_BY_ROOM_TYPE: Record<string, number> = {
+  "Double Sharing": 2,
+  "Four Sharing": 4,
+  "Single Room": 1,
+  "Triple Sharing": 3,
+};
+
+type RoomCounts = {
+  bedsPerRoom: string;
+  rooms: string;
+  roomType: string;
+  vacantBeds: string;
+};
+
+/**
+ * Applies one edit to a rooms row. Picking a room type fills beds each, and
+ * vacant stays at every bed in the row (rooms × beds each) until the agent
+ * types a lower figure — it can never go above that.
+ */
+export function editRoomRow<T extends RoomCounts>(room: T, patch: Partial<T>): T {
+  const capacity = (row: RoomCounts) =>
+    (numberValue(row.rooms) ?? 0) * (numberValue(row.bedsPerRoom) ?? 0);
+  const next = { ...room, ...patch };
+
+  if (patch.roomType && BEDS_BY_ROOM_TYPE[patch.roomType]) {
+    next.bedsPerRoom = String(BEDS_BY_ROOM_TYPE[patch.roomType]);
+  }
+
+  const max = capacity(next);
+  if (!max) return next;
+
+  if (patch.vacantBeds !== undefined) {
+    const vacant = numberValue(patch.vacantBeds);
+    if (vacant !== undefined && vacant > max) next.vacantBeds = String(max);
+    return next;
+  }
+
+  const vacant = numberValue(room.vacantBeds);
+  const following = vacant === undefined || vacant === capacity(room);
+  next.vacantBeds = String(following ? max : Math.min(vacant, max));
+  return next;
+}
+
 /** One document slot: what it is on the left, its uploader on the right. */
 export function DocRow({
   children,

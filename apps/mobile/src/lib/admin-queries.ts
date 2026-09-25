@@ -312,6 +312,8 @@ export type AdminResidentRecord = {
   ledger: ResidentLedger | null;
   moveIn: MoveInChecklist | null;
   moveOut: MoveOutChecklist | null;
+  /** What they owe right now, from the server's ledger — null when it could not be read. */
+  owed: number | null;
   resident: ManagedResident;
   roomTypes: string[];
 };
@@ -332,7 +334,8 @@ async function loadResident(id: string): Promise<AdminResidentRecord> {
     contacts,
     ledger,
     moveIn,
-    moveOut,
+    moveOut: moveOut?.checklist ?? null,
+    owed: moveOut?.pendingFeeAmount ?? null,
     resident,
     roomTypes: (hostel?.roomConfigurations ?? []).map((config) => config.roomType),
   };

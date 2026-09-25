@@ -231,10 +231,11 @@ export function checkExistingResidents(rows: ListRow[], context: CheckContext): 
       }
     }
 
-    const rent = row.monthlyRent ?? room?.monthlyRent ?? null;
+    // The rate card is the only rent — a typed or uploaded one is never used.
+    const rent = room?.monthlyRent ?? null;
 
     if (room && rent === null) {
-      add("monthlyRent", `There is no normal rent for ${room.roomType}. Write the monthly rent.`);
+      add("monthlyRent", `${room.roomType} has no rent in the rate card. Set it in Fee schedule first.`);
     }
 
     let bills: BillPreview | null = null;

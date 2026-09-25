@@ -191,42 +191,7 @@ export async function listAgentRegistrations(agentId: string, limit = 100) {
     };
   });
 
-  /*
-   * Money owed sorts to the top, oldest deadline first.
-   *
-   * The query is newest-first, which is the right order for "what did I file
-   * this week" and the wrong one for the job this list is actually for. An
-   * agent opens it to find out who to chase, and the hostel that has been
-   * overdue longest is the one that needs chasing — under a date sort it sinks
-   * further out of sight every time a colleague files a new registration.
-   */
-  const overdueRank = (row: (typeof registrations)[number]) =>
-    row.outstanding > 0 ? (row.subscriptionStatus === "PAST_DUE" ? 0 : 1) : 2;
-
-  registrations.sort((left, right) => {
-    const byRank = overdueRank(left) - overdueRank(right);
-
-    if (byRank !== 0) {
-      return byRank;
-    }
-
-    // Within the owing rows, whoever has been waiting longest. A row with no
-    // deadline set yet sorts after the dated ones rather than before them.
-    if (overdueRank(left) < 2) {
-      const leftDue = left.dueBy ? Date.parse(left.dueBy) : Number.POSITIVE_INFINITY;
-      const rightDue = right.dueBy ? Date.parse(right.dueBy) : Number.POSITIVE_INFINITY;
-
-      if (leftDue !== rightDue) {
-        return leftDue - rightDue;
-      }
-    }
-
-    // Settled rows keep the newest-first order the query gave them.
-    return (
-      Date.parse(right.registeredAt ?? "") - Date.parse(left.registeredAt ?? "") || 0
-    );
-  });
-
+  // Newest first, as the query gave them — the field team asked for it (2026-09-25).
   return { registrations };
 }
 

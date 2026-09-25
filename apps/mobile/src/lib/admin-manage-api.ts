@@ -1760,19 +1760,19 @@ export async function saveMoveInChecklist(
   await api.post(`/hostel-admin/residents/${id}/move-in`, input);
 }
 
+/** The recorded move-out, if any, and what they owe right now. */
 export async function getMoveOutChecklist(id: string) {
-  const response = await api.get<ApiEnvelope<{ checklist: MoveOutChecklist | null }>>(
-    `/hostel-admin/residents/${id}/move-out`,
-  );
+  const response = await api.get<
+    ApiEnvelope<{ checklist: MoveOutChecklist | null; pendingFeeAmount?: number }>
+  >(`/hostel-admin/residents/${id}/move-out`);
 
-  return unwrap(response).checklist;
+  return unwrap(response);
 }
 
 /**
- * `POST .../move-out` — the record of what was returned and what was withheld.
- *
- * It does **not** on its own set the resident to MOVED_OUT; that is the status
- * route, and the screen does both so the two never drift apart.
+ * `POST .../move-out` — moves them out in one call: sets MOVED_OUT, frees the
+ * bed once, and records the deposit decision. The server sets the refund amount
+ * from the decision; only a partial refund's typed amount is used.
  */
 export async function saveMoveOutChecklist(
   id: string,

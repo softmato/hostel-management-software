@@ -86,7 +86,6 @@ type Draft = {
   fullName: string;
   id?: string;
   joined: string;
-  monthlyRent: string;
   oldDues: string;
   paidTill: string | null;
   phone: string;
@@ -100,7 +99,6 @@ function draftFrom(input: ReturnType<typeof blankRow>): Draft {
     fullName: input.fullName,
     id: input.id,
     joined: toDayInput(input.joinedDate),
-    monthlyRent: input.monthlyRent === null ? "" : String(input.monthlyRent),
     oldDues: input.oldDues ? String(input.oldDues) : "",
     paidTill: input.paidTill,
     phone: input.phone,
@@ -167,7 +165,8 @@ export default function ExistingResidentsScreen() {
       fullName: draft.fullName.trim(),
       ...(draft.id ? { id: draft.id } : {}),
       joinedDate,
-      monthlyRent: rupeesFrom(draft.monthlyRent),
+      // The rate card's rent, read by the server.
+      monthlyRent: null,
       oldDues: rupeesFrom(draft.oldDues) ?? 0,
       paidTill: draft.paidTill,
       phone: draft.phone.trim(),
@@ -356,7 +355,7 @@ export default function ExistingResidentsScreen() {
   const roomOptions = view.roomTypes.map((room) => ({
     description: [
       `${room.freeBeds} free`,
-      room.monthlyRent === null ? "no normal rent" : `${formatMoney(room.monthlyRent)} a month`,
+      room.monthlyRent === null ? "no rent in the rate card" : `${formatMoney(room.monthlyRent)} a month`,
     ].join(" · "),
     label: room.roomType,
     value: room.roomType,
@@ -538,7 +537,12 @@ export default function ExistingResidentsScreen() {
               value={draft.phone}
             />
             <Select
-              error={draftProblems.get("roomType")}
+              error={draftProblems.get("roomType") ?? draftProblems.get("monthlyRent")}
+              hint={
+                draftRoom?.monthlyRent != null
+                  ? `${formatMoney(draftRoom.monthlyRent)} a month, from the rate card`
+                  : undefined
+              }
               label="Room type"
               onChange={(roomType) => setDraft({ ...draft, roomType })}
               options={roomOptions}
@@ -554,18 +558,6 @@ export default function ExistingResidentsScreen() {
               placeholder="Paid or months due"
               sheetTitle="Rent"
               value={draft.paidTill}
-            />
-            <Input
-              error={draftProblems.get("monthlyRent")}
-              hint={
-                draftRoom?.monthlyRent != null
-                  ? `Leave empty for the normal rent, ${formatMoney(draftRoom.monthlyRent)}`
-                  : "Their monthly rent"
-              }
-              keyboardType="number-pad"
-              label="Monthly rent (Rs)"
-              onChangeText={(monthlyRent) => setDraft({ ...draft, monthlyRent })}
-              value={draft.monthlyRent}
             />
             <View className="flex-row gap-3">
               <View className="flex-1">

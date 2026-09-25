@@ -89,11 +89,11 @@ describe("a clean list", () => {
     expect(aswin.amount).toBeGreaterThan(0);
   });
 
-  it("uses the resident's own rent when one is written", () => {
+  it("bills the rate card's rent, whatever the line says", () => {
     const result = checkExistingResidents([row({ monthlyRent: 9000, paidTill: "2083-05" })], context());
 
-    expect(result.rows[0]!.rent).toBe(9000);
-    expect(result.rows[0]!.bills!.total).toBe(9000);
+    expect(result.rows[0]!.rent).toBe(12000);
+    expect(result.rows[0]!.bills!.total).toBe(12000);
   });
 
   it("skips rows already added", () => {
@@ -185,7 +185,7 @@ describe("problems, in plain words", () => {
     const result = checkExistingResidents([row({ roomType: "Single" })], context());
 
     expect(messages(result)).toEqual([
-      "There is no normal rent for Single. Write the monthly rent.",
+      "Single has no rent in the rate card. Set it in Fee schedule first.",
     ]);
   });
 

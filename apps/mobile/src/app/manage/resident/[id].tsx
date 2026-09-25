@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from "expo-router";
+import { LogOut } from "lucide-react-native";
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Alert, Linking, View } from "react-native";
 
@@ -12,6 +13,7 @@ import { Chip, FactRow } from "@/components/ui/layout";
 import { ListRow, RowDivider } from "@/components/ui/list-row";
 import { Money } from "@/components/ui/money";
 import { Screen } from "@/components/ui/screen";
+import { Segmented } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { SkeletonCard, SkeletonRows } from "@/components/ui/skeleton";
@@ -26,7 +28,6 @@ import {
   type ActivationIssue,
   issueActivationCode,
   issueGuardianAccess,
-  type MoveOutChecklist,
   saveMoveInChecklist,
   saveMoveOutChecklist,
   setResidentFee,
@@ -49,9 +50,9 @@ import { toastError, toastSuccess } from "@/lib/toast";
  *
  * - **Changing room type** moves a unit of vacancy between two types, and fails
  *   outright if the destination is full. It is not a label.
- * - **Moving out** does not free the bed by itself — the *status* does — so the
- *   sheet writes the checklist and sets `MOVED_OUT` together, which is the only
- *   way the two cannot drift apart.
+ * - **Moving out** is one button and one call: the server sets `MOVED_OUT`,
+ *   frees the bed once and records the deposit decision. The status sheet no
+ *   longer offers "Moved out", so there is no second door that skips the deposit.
  * - **Clearing the fee override** is `null`, not `0`. Zero is a deliberate free
  *   stay and the charge resolver honours it; null hands the resident back to the
  *   hostel's fee schedule. A form that treats an empty box as zero would quietly
@@ -88,12 +89,21 @@ const STATUS_OPTIONS = [
   { description: "Gone. Their bed goes back to the pool.", label: "Moved out", value: "MOVED_OUT" },
 ] as const;
 
-const REFUND_OPTIONS = [
-  { description: "Not decided yet.", label: "Pending", value: "PENDING" },
-  { description: "The whole deposit goes back.", label: "Full refund", value: "APPROVED" },
-  { description: "Some withheld — say why below.", label: "Partial", value: "PARTIAL" },
-  { description: "Nothing goes back.", label: "Forfeited", value: "FORFEITED" },
+type DepositDecision = "APPROVED" | "PARTIAL" | "FORFEITED" | "PENDING";
+
+const DEPOSIT_OPTIONS = [
+  { label: "Return all", value: "APPROVED" },
+  { label: "Return part", value: "PARTIAL" },
+  { label: "Keep", value: "FORFEITED" },
+  { label: "Later", value: "PENDING" },
 ] as const;
+
+const DEPOSIT_LABELS: Record<string, string> = {
+  APPROVED: "returned in full",
+  FORFEITED: "kept",
+  PARTIAL: "part returned",
+  PENDING: "not settled yet",
+};
 
 /*
  * `ResidentData` and its six-request loader are `adminQuery.resident(id)` — see
@@ -225,13 +235,12 @@ export default function ManageResidentScreen() {
 
         setForm({
           damageNotes: checklist?.damageNotes ?? "",
-          depositRefundAmount: String(
-            checklist?.depositRefundAmount ?? resident.depositAmount ?? 0,
-          ),
-          depositRefundDecision: checklist?.depositRefundDecision ?? "PENDING",
-          itemReturnNotes: checklist?.itemReturnNotes ?? "",
+          depositRefundAmount:
+            checklist?.depositRefundDecision === "PARTIAL"
+              ? String(checklist.depositRefundAmount)
+              : "",
+          depositRefundDecision: checklist?.depositRefundDecision ?? "APPROVED",
         });
-        setFlags({ alsoMoveOut: resident.status !== "MOVED_OUT" });
       }
 
       if (next === "activation") {
@@ -299,40 +308,33 @@ export default function ManageResidentScreen() {
     }
   }, [flags.sendEmail, id, refresh]);
 
-  const confirmMoveOut = useCallback(() => {
-    Alert.alert(
-      `Move ${fullName} out?`,
-      flags.alsoMoveOut
-        ? "The checklist is recorded and their bed goes back to the pool."
-        : "The checklist is recorded. Their status is left as it is, so the bed stays taken.",
-      [
-        { style: "cancel", text: "Cancel" },
-        {
-          onPress: () => {
-            void run(async () => {
-              await saveMoveOutChecklist(id, {
-                damageNotes: form.damageNotes?.trim() || undefined,
-                depositRefundAmount: toNumber(form.depositRefundAmount ?? "0"),
-                depositRefundDecision: (form.depositRefundDecision ??
-                  "PENDING") as MoveOutChecklist["depositRefundDecision"] as
-                  | "PENDING"
-                  | "APPROVED"
-                  | "PARTIAL"
-                  | "FORFEITED",
-                itemReturnNotes: form.itemReturnNotes?.trim() || undefined,
-              });
+  /*
+   * No extra "are you sure": the sheet is the confirmation — it shows what they
+   * owe and what happens to the deposit, and this is its one button.
+   */
+  const moveOutNow = useCallback(() => {
+    const hasDeposit = (resident?.depositAmount ?? 0) > 0;
+    // Nothing held means nothing to decide; "return all" of nothing keeps the
+    // resident's notice from mentioning a deposit at all.
+    const decision = (hasDeposit ? form.depositRefundDecision : "APPROVED") as DepositDecision;
+    const holdsBack = decision === "PARTIAL" || decision === "FORFEITED";
 
-              if (flags.alsoMoveOut) {
-                await setResidentStatus(id, "MOVED_OUT");
-              }
-            }, "Move-out recorded");
-          },
-          style: "destructive",
-          text: "Move out",
-        },
-      ],
+    if (decision === "PARTIAL" && toNumber(form.depositRefundAmount ?? "") <= 0) {
+      toastError("How much goes back?", "Type the amount to return, or pick Keep.");
+      return;
+    }
+
+    void run(
+      () =>
+        saveMoveOutChecklist(id, {
+          damageNotes: holdsBack ? form.damageNotes?.trim() || undefined : undefined,
+          depositRefundAmount:
+            decision === "PARTIAL" ? toNumber(form.depositRefundAmount ?? "0") : 0,
+          depositRefundDecision: decision,
+        }),
+      resident?.status === "MOVED_OUT" ? "Deposit updated" : `${fullName} has moved out`,
     );
-  }, [flags.alsoMoveOut, form, fullName, id, run]);
+  }, [form, fullName, id, resident, run]);
 
   if (data.loading) {
     return (
@@ -483,17 +485,19 @@ export default function ManageResidentScreen() {
               }
               title="Move-in checklist"
             />
-            <RowDivider inset />
-            <ListRow
-              icon="log-out-outline"
-              onPress={() => openPanel("moveOut")}
-              subtitle={
-                data.data?.moveOut?.completedAt
-                  ? `Recorded ${dates.date(data.data.moveOut.completedAt)}`
-                  : "Deposit, damages, and handing the bed back"
-              }
-              title="Move-out checklist"
-            />
+            {moveOut?.completedAt ? (
+              <>
+                <RowDivider inset />
+                <ListRow
+                  icon="log-out-outline"
+                  onPress={() => openPanel("moveOut")}
+                  subtitle={`${dates.date(moveOut.completedAt)} · Deposit ${
+                    DEPOSIT_LABELS[moveOut.depositRefundDecision] ?? "not settled yet"
+                  }`}
+                  title="Moved out"
+                />
+              </>
+            ) : null}
           </Card>
         </View>
 
@@ -605,6 +609,15 @@ export default function ManageResidentScreen() {
             )}
           </Card>
         </View>
+
+        {resident.status !== "MOVED_OUT" ? (
+          <Button
+            icon={LogOut}
+            label="Move out"
+            onPress={() => openPanel("moveOut")}
+            variant="danger"
+          />
+        ) : null}
       </View>
 
       {/* ------------------------------------------------------------------ */}
@@ -875,14 +888,19 @@ export default function ManageResidentScreen() {
           <Select
             label="They are"
             onChange={(status) => setForm((prev) => ({ ...prev, status }))}
-            options={STATUS_OPTIONS}
+            options={
+              resident.status === "MOVED_OUT"
+                ? STATUS_OPTIONS
+                : STATUS_OPTIONS.filter((option) => option.value !== "MOVED_OUT")
+            }
             value={form.status ?? null}
           />
-          <Text variant="caption">
-            Moving somebody out here returns their bed to the pool immediately. If you
-            also want the deposit and damages recorded, use the move-out checklist
-            instead — it does both.
-          </Text>
+          {resident.status === "MOVED_OUT" ? null : (
+            <Text variant="caption">
+              Leaving the hostel? Use Move out at the bottom of their page — it frees the
+              bed and settles the deposit.
+            </Text>
+          )}
         </View>
       </Sheet>
 
@@ -1079,74 +1097,84 @@ export default function ManageResidentScreen() {
 
       {/* ------------------------------------------------------------------ */}
       <Sheet
-        footer={<Button label="Record it" loading={busy} onPress={confirmMoveOut} />}
+        footer={
+          <Button
+            icon={resident.status === "MOVED_OUT" ? undefined : LogOut}
+            label={resident.status === "MOVED_OUT" ? "Save" : "Move out"}
+            loading={busy}
+            onPress={moveOutNow}
+            variant={resident.status === "MOVED_OUT" ? "primary" : "danger"}
+          />
+        }
         onClose={() => setPanel(null)}
         open={panel === "moveOut"}
-        title="Move-out checklist"
+        title={resident.status === "MOVED_OUT" ? "Deposit" : `Move out ${resident.firstName}`}
       >
-        <View className="gap-3 pb-2">
-          {data.data?.moveOut?.pendingFeeAmount ? (
-            <View className="gap-1 rounded-xl border border-warning/40 bg-warning-soft p-3">
-              <Text variant="label">Still owed</Text>
-              <Money owed value={data.data.moveOut.pendingFeeAmount} />
-              <Text variant="caption">
-                Worked out from their invoices, not typed in — settle or write it off
-                before refunding the deposit.
-              </Text>
+        <View className="gap-4 pb-2">
+          {resident.status === "MOVED_OUT" ? null : (
+            <Text variant="caption">
+              Their bed is freed and they get no new bills. What they already owe stays on
+              their record.
+            </Text>
+          )}
+
+          <View className="rounded-2xl border border-border bg-card px-3 py-1">
+            <FactRow
+              label="Still owed"
+              value={
+                data.data?.owed === null || data.data?.owed === undefined ? (
+                  <Text variant="muted">Could not load</Text>
+                ) : data.data.owed > 0 ? (
+                  <Money owed value={data.data.owed} />
+                ) : (
+                  "Nothing"
+                )
+              }
+            />
+            <FactRow
+              label="Deposit held"
+              value={
+                resident.depositAmount > 0 ? <Money value={resident.depositAmount} /> : "None"
+              }
+            />
+          </View>
+
+          {resident.depositAmount > 0 ? (
+            <View className="gap-2">
+              <Text variant="label">Deposit</Text>
+              <Segmented
+                onChange={(depositRefundDecision) =>
+                  setForm((prev) => ({ ...prev, depositRefundDecision }))
+                }
+                options={DEPOSIT_OPTIONS}
+                value={(form.depositRefundDecision ?? "APPROVED") as DepositDecision}
+              />
             </View>
           ) : null}
 
-          <Select
-            label="Deposit"
-            onChange={(depositRefundDecision) =>
-              setForm((prev) => ({ ...prev, depositRefundDecision }))
-            }
-            options={REFUND_OPTIONS}
-            value={form.depositRefundDecision ?? null}
-          />
-
-          <Input
-            keyboardType="number-pad"
-            label="Refunding (NPR)"
-            onChangeText={(depositRefundAmount) =>
-              setForm((prev) => ({ ...prev, depositRefundAmount }))
-            }
-            value={form.depositRefundAmount ?? ""}
-          />
-
-          <Input
-            label="Damages"
-            multiline
-            onChangeText={(damageNotes) => setForm((prev) => ({ ...prev, damageNotes }))}
-            placeholder="What was broken, and what it cost"
-            style={{ height: 72 }}
-            value={form.damageNotes ?? ""}
-          />
-
-          <Input
-            label="Items returned"
-            multiline
-            onChangeText={(itemReturnNotes) =>
-              setForm((prev) => ({ ...prev, itemReturnNotes }))
-            }
-            placeholder="Keys, mattress, cupboard key"
-            style={{ height: 72 }}
-            value={form.itemReturnNotes ?? ""}
-          />
-
-          <View className="flex-row items-center justify-between gap-3 border-t border-border pt-3">
-            <View className="flex-1">
-              <Text variant="label">Also mark them moved out</Text>
-              <Text variant="caption">
-                This is what actually frees the bed. The checklist alone does not.
-              </Text>
-            </View>
-            <Toggle
-              accessibilityLabel="Also set the resident to moved out"
-              onChange={(alsoMoveOut) => setFlags((prev) => ({ ...prev, alsoMoveOut }))}
-              value={flags.alsoMoveOut ?? false}
+          {resident.depositAmount > 0 && form.depositRefundDecision === "PARTIAL" ? (
+            <Input
+              keyboardType="number-pad"
+              label="Amount to return (NPR)"
+              onChangeText={(depositRefundAmount) =>
+                setForm((prev) => ({ ...prev, depositRefundAmount }))
+              }
+              value={form.depositRefundAmount ?? ""}
             />
-          </View>
+          ) : null}
+
+          {resident.depositAmount > 0 &&
+          (form.depositRefundDecision === "PARTIAL" ||
+            form.depositRefundDecision === "FORFEITED") ? (
+            <Input
+              label="Why it is held back"
+              multiline
+              onChangeText={(damageNotes) => setForm((prev) => ({ ...prev, damageNotes }))}
+              placeholder="Broken chair, unpaid rent, lost key"
+              style={{ height: 72 }}
+              value={form.damageNotes ?? ""}
+            />
+          ) : null}
         </View>
       </Sheet>
 

@@ -57,6 +57,8 @@ import {
   DocRow,
   FileUploadArea,
   ID_PROOF_TYPES,
+  BEDS_BY_ROOM_TYPE,
+  editRoomRow,
   numberValue,
   RULES_TEMPLATES,
   roomTypeOptions,
@@ -273,7 +275,7 @@ async function uploadPublicPhoto(file: File, label: string): Promise<string> {
 
 function createRoom(roomType = "Single Room"): RoomConfig {
   return {
-    bedsPerRoom: "",
+    bedsPerRoom: BEDS_BY_ROOM_TYPE[roomType] ? String(BEDS_BY_ROOM_TYPE[roomType]) : "",
     id: crypto.randomUUID(),
     mealInclusion: "Included",
     monthlyRent: "",
@@ -898,7 +900,7 @@ export function PublicHostelRegistrationPage() {
   }
 
   function updateRoom(id: string, next: Partial<RoomConfig>) {
-    setRooms((prev) => prev.map((r) => (r.id === id ? { ...r, ...next } : r)));
+    setRooms((prev) => prev.map((r) => (r.id === id ? editRoomRow(r, next) : r)));
   }
 
   function goTo(next: number) {
