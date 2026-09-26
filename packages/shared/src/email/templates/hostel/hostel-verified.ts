@@ -46,7 +46,7 @@ export function hostelVerifiedEmail(input: {
 
   return {
     category: "info",
-    subject: `Good news! ${input.hostelName} is checked and ready`,
+    subject: `${input.hostelName} is checked and ready`,
     html: emailLayout({
       heading: "Your details are OK",
       bodyHtml: [

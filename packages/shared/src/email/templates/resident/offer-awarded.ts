@@ -20,7 +20,7 @@ export function offerAwardedEmail(input: {
     category: "info",
     subject: `You got an offer: ${input.title} · Resident Offer Program`,
     html: emailLayout({
-      heading: "You got an offer 🎁",
+      heading: "You got an offer",
       bodyHtml: [
         paragraph(
           `Hi ${escapeHtml(input.residentName)}, thank you for paying with your reference code in <strong>${escapeHtml(input.quarterLabel)}</strong>. ${escapeHtml(PLATFORM_NAME)} is giving you:`,

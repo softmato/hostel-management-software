@@ -12,7 +12,7 @@ export function serviceProviderApprovedEmail(input: {
 
   return {
     category: "info",
-    subject: `Good news! You are approved on ${siteName}`,
+    subject: `You are approved on ${siteName}`,
     html: emailLayout({
       heading: "You are listed",
       siteName: input.siteName,

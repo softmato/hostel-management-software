@@ -1,9 +1,13 @@
 import {
   ctaButton,
+  detailsTable,
+  emailDate,
   emailLayout,
   escapeHtml,
   monthName,
   paragraph,
+  sectionTitle,
+  smallPrint,
   type EmailContent,
 } from "../layout";
 
@@ -69,61 +73,30 @@ export function residentRegisteredEmail(input: {
   signIn: ResidentSignIn;
 }): EmailContent {
   const currency = input.currency ?? "NPR";
-  const money = (value: number) =>
-    `${escapeHtml(currency)} ${value.toLocaleString("en-US")}`;
-
-  const facts = [
-    `Hostel: <strong>${escapeHtml(input.hostelName)}</strong>`,
-    `Room: <strong>${escapeHtml(
-      [input.roomType.replaceAll("_", " "), input.roomNumber]
-        .filter(Boolean)
-        .join(" · "),
-    )}</strong>`,
-    `Moving in: <strong>${escapeHtml(input.moveInDate.toDateString())}</strong>`,
-    input.monthlyRent
-      ? `Monthly rent: <strong>${money(input.monthlyRent)}</strong>`
-      : "",
-    input.admissionFee
-      ? `Admission fee: <strong>${money(input.admissionFee)}</strong>`
-      : "",
-    input.depositAmount
-      ? `Deposit: <strong>${money(input.depositAmount)}</strong>`
-      : "",
-  ].filter(Boolean);
+  const money = (value?: number | null) =>
+    value ? `${currency} ${value.toLocaleString("en-US")}` : "";
+  const first = input.firstMonth;
 
   /*
-   * The first month is its own paragraph rather than another bullet, because it
-   * is the only figure in the mail that is *owed* — the rest describe the
-   * arrangement. A part month is named as one: an amount well under the monthly
-   * rent, unexplained, reads as a mistake, and the resident's first act would be
-   * to query a bill that is correct.
+   * The first month is its own table because it is the only figure here that is
+   * *owed* — the rest describe the arrangement. A part month says so, or an
+   * amount under the rent reads as a mistake.
    */
-  const firstMonth = input.firstMonth
-    ? paragraph(
-        [
-          `Your rent for <strong>${escapeHtml(monthName(input.firstMonth.period))}</strong> is <strong>${money(input.firstMonth.amount)}</strong>`,
-          input.firstMonth.prorated
-            ? ", only from the day you move in (not the full month)"
-            : "",
-          input.firstMonth.dueDate
-            ? `. Pay by <strong>${escapeHtml(input.firstMonth.dueDate.toDateString())}</strong>`
-            : "",
-          ".",
-          input.firstMonth.referenceCode
-            ? ` Write <strong>${escapeHtml(input.firstMonth.referenceCode)}</strong> when you pay, so the hostel knows it is your payment.`
-            : "",
-        ].join(""),
-      )
+  const firstMonth = first
+    ? [
+        sectionTitle("To pay now"),
+        detailsTable([
+          { label: "Month", value: monthName(first.period) },
+          { emphasis: true, label: "Amount", value: money(first.amount) },
+          { label: "Pay by", value: emailDate(first.dueDate) ?? "" },
+          { label: "Reference code", value: first.referenceCode ?? "" },
+        ]),
+        first.prorated ? smallPrint("Only from the day you move in, not the full month.") : "",
+        first.referenceCode
+          ? smallPrint("Write the reference code when you pay, so the hostel knows it is you.")
+          : "",
+      ].join("\n")
     : "";
-
-  const signIn =
-    input.signIn === "EXISTING_ACCOUNT"
-      ? paragraph(
-          "No new password needed. Log in the same way as before (email and password, or Google).",
-        )
-      : paragraph(
-          "To use the app, ask the hostel for your code. We never send passwords by email.",
-        );
 
   return {
     category: "info",
@@ -132,17 +105,26 @@ export function residentRegisteredEmail(input: {
       heading: "Welcome to your hostel",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> added you as a resident. Here are your details.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> added you as a resident.`,
         ),
-        `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
-          .map((fact) => `<li>${fact}</li>`)
-          .join("")}</ul>`,
+        detailsTable([
+          {
+            label: "Room",
+            value: [input.roomType.replaceAll("_", " "), input.roomNumber].filter(Boolean).join(" · "),
+          },
+          { label: "Moving in", value: emailDate(input.moveInDate) ?? "" },
+          { label: "Monthly rent", value: money(input.monthlyRent) },
+          { label: "Admission fee", value: money(input.admissionFee) },
+          { label: "Deposit", value: money(input.depositAmount) },
+        ]),
         firstMonth,
-        signIn,
-        ctaButton(input.dashboardUrl, "Open my dashboard"),
-        paragraph(
-          "There you can see rent, payments, meals and notices, and send complaints. If anything above is wrong, tell the hostel before you pay.",
+        ctaButton(input.dashboardUrl, "Open my account"),
+        smallPrint(
+          input.signIn === "EXISTING_ACCOUNT"
+            ? "Log in the same way as before. No new password needed."
+            : "To use the app, ask the hostel for your code.",
         ),
+        smallPrint("Something wrong? Tell the hostel before you pay."),
       ]
         .filter(Boolean)
         .join("\n"),

@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 
+vi.mock("@hostel/db/models/EmailPreference", () => ({
+  EmailPreferenceModel: { exists: vi.fn().mockResolvedValue(null) },
+}));
 vi.mock("@hostel/db/models/Complaint", () => ({
   ComplaintModel: { find: mocks.complaintFind, updateMany: mocks.complaintUpdateMany },
 }));
@@ -103,7 +106,7 @@ describe("complaint SLA cron", () => {
       expect.objectContaining({ slaBreachedAt: { $exists: false } }),
     );
     expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
-    expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("2 overdue complaints");
+    expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("2 complaints past the deadline");
   });
 
   it("does nothing when no complaint has breached", async () => {

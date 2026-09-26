@@ -1723,6 +1723,22 @@ counter** (the draft's shape): a counter has to be kept in step with the rows it
 counts, and drifts the first time a write half-fails. Counting the receipts
 cannot drift, and it stays right when someone opens a months-old notification.
 
+### EmailPreference
+
+Which optional emails an **address** has turned off (EMAIL_SYSTEM.md, "Per-person
+opt-out"). Keyed by address rather than account, because a resident can be
+mailed with no login.
+[`packages/db/src/models/EmailPreference.ts`](../packages/db/src/models/EmailPreference.ts).
+
+```typescript
+{
+  email: string;          // lower-cased, unique
+  mutedTopics: string[];  // EmailTopic values; no row = everything on
+}
+```
+
+Indexes: `{ email }` unique.
+
 **Why `NotificationReceipt` was not built.** The per-recipient `Notification`
 row already carries `campaignId`, `deliveredAt` and `readAt` — a separate
 receipt collection would duplicate every row for no extra fact. Push-specific

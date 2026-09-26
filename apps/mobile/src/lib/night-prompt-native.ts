@@ -19,7 +19,8 @@ import type { QueuedNightStatus } from "@/lib/night-status-queue";
 
 type NativeNightPrompt = {
   configure(apiBaseUrl: string): void;
-  takePendingAnswers(): string;
+  pendingAnswers(): string;
+  removePendingAnswer(answeredAt: string): void;
 };
 
 const native =
@@ -38,14 +39,17 @@ export function configureNativeNightPrompt(apiBaseUrl: string) {
   }
 }
 
-/** Answers the native handler holds, removed from it. Empty without the module. */
-export function takeNativePendingAnswers(): QueuedNightStatus[] {
+/**
+ * Answers the native handler still holds, left with it — remove each with
+ * {@link removeNativePendingAnswer} once sent. Empty without the module.
+ */
+export function readNativePendingAnswers(): QueuedNightStatus[] {
   if (!native) {
     return [];
   }
 
   try {
-    const parsed: unknown = JSON.parse(native.takePendingAnswers());
+    const parsed: unknown = JSON.parse(native.pendingAnswers());
 
     return Array.isArray(parsed)
       ? parsed.filter(
@@ -58,5 +62,13 @@ export function takeNativePendingAnswers(): QueuedNightStatus[] {
       : [];
   } catch {
     return [];
+  }
+}
+
+export function removeNativePendingAnswer(answeredAt: string) {
+  try {
+    native?.removePendingAnswer(answeredAt);
+  } catch {
+    // Left for the native retry job, which the server's supersede check makes harmless.
   }
 }

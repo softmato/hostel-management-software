@@ -501,9 +501,18 @@ Note: Multiple cooks can share these credentials.
 
 ## 3. Payment Emails
 
+**How often (2026-09-26).** Nobody gets more than one rent email a day:
+
+| Who | Email | Not email (bell / push only) |
+|---|---|---|
+| Resident | the hostel's window before the due day (7 days by default), the due day, 3 and 7 days late, then weekly ×4 | 3 days before (the fee push goes twice a day from then), proof received |
+| Resident with several unpaid bills | one email per run, the overdue one first | the other bills' rungs |
+| Hostel admins | one morning digest (07:45): proofs waiting + payments received in the last day; one escalation email per run listing every resident who ran out of reminders | each proof as it arrives (bell with *Verify*), each cleared payment |
+
 ### 3.1 Payment Due Reminder
 
-**Trigger:** Scheduled job X days before due date (configurable in PlatformConfig)
+**Trigger:** `payment-reminders` cron (`dunning.service`): the hostel's window
+(`paymentReminderDaysBefore`) and the due day. The 3-days-out rung is bell only.
 **Recipients:** Resident + Guardian (if guardian has `feeStatus` permission enabled)
 **Template:** `payment/payment-due-reminder`
 **Subject:** "Payment due on [Date] - [Hostel Name]"
@@ -559,30 +568,20 @@ Note: Multiple cooks can share these credentials.
 
 ---
 
-### 3.3 Payment Proof Uploaded (to Admin)
+### 3.3 Payments digest (to Admin) *(replaced per-proof email 2026-09-26)*
 
-**Trigger:** Resident uploads payment proof
-**Recipients:** Hostel admin + wardens with payment verification permission
-**Template:** `payment/proof-uploaded`
-**Subject:** "Payment proof uploaded - [Resident Name]"
+**Trigger:** `payment-reminders` cron, after the dunning run (`sendAdminPaymentDigest`)
+**Recipients:** Owner + active `HOSTEL_ADMIN` members, one email per hostel
+**Subject:** "[N] payments to verify - [Hostel Name]" or "[N] payments received - [Hostel Name]"
 
-**Data:**
-```typescript
-{
-  residentName: string;
-  hostelName: string;
-  amount: number;
-  month: string;
-  paymentMethod: string;
-  verifyLink: string; // direct link to verification page
-}
-```
-
-**Content:**
-- "[Resident Name] has uploaded payment proof"
-- Amount and month
-- Payment method
-- "Verify now" CTA
+**Content:** two tables — *To check* (proofs still `PENDING`) and *Received since
+yesterday* (receipts issued in the last day) — a row per payment with the
+resident's name, month and amount, and a total. Template:
+`hostel/staff-alerts.ts` → `paymentSummaryEmail`, beside the other admin
+summaries (unpaid fees, overdue complaints, residents away, new complaint).
+A hostel with neither
+gets nothing. Each proof still reaches the bell and push as it arrives, with a
+one-tap *Verify payment*.
 
 ---
 
@@ -654,8 +653,8 @@ Every payment button opens the website.
 | Plan invoice | An invoice is raised (`onInvoiceIssued`) | `billing/subscription-invoice` | `billing` | *Pay now*, to the progress page for a self-registered hostel or the billing page for a live one. For a team registration it is *View billing*, because the agent is collecting in person |
 | Listing is live | A field agent files the hostel (`onRegisteredByTeam`) | `hostel/hostel-registered-by-team` | `info` | *Pay now* to `/{slug}/admin/billing` when a balance is left, otherwise *View your listing* |
 | Receipt | Money settles (`onPaymentSettled`) | `billing/subscription-receipt` | `billing` | None; it is paperwork |
-| Payment due | 08:00 Nepal, 7 and 5 days before the due day, then every day from 3 days before | `billing/plan-due` → `planDueSoonEmail` | `billing` | *Pay now*, plus the website link in plain text |
-| Payment overdue | 08:00 Nepal, every day until paid, **live hostels only** (`PAST_DUE`) | `billing/plan-due` → `planOverdueEmail` | `alert` | *Pay now*, plus the website link in plain text |
+| Payment due | 08:00 Nepal, 7 and 3 days before the due day, and on the day (`planEmailsToday`) | `billing/plan-due` → `planDueSoonEmail` | `billing` | *Pay now*, plus the website link in plain text |
+| Payment overdue | 08:00 Nepal, every 7 days late until paid, **live hostels only** (`PAST_DUE`) | `billing/plan-due` → `planOverdueEmail` | `alert` | *Pay now*, plus the website link in plain text |
 
 #### Reminder schedule
 
@@ -665,7 +664,7 @@ Four **automatic rows on the superadmin Push tab** (`AUTOMATIC_PUSHES` in
 
 | Row | Time (Nepal) | Days | Push to | Email |
 |---|---|---|---|---|
-| Plan payment · morning | 08:00 | 7 and 5 days before, then every day from 3 days before until paid | hostel admins | owner |
+| Plan payment · morning | 08:00 | 7 and 5 days before, then every day from 3 days before until paid | hostel admins | owner: 7, 3 and 0 days before, then weekly |
 | Plan payment · evening | 21:00 | every day from 3 days before until paid | hostel admins | |
 | Hostel fee · morning | 08:00 | 7 and 5 days before, then every day from 3 days before until paid | residents | |
 | Hostel fee · evening | 21:00 | every day from 3 days before until paid | residents | |
@@ -722,13 +721,15 @@ A run the cron missed by more than 30 minutes is skipped, not replayed.
 - "Read full notice" CTA
 - Posted date
 
-**Note:** Skip email if PlatformConfig.emailSettings.sendNoticeEmails = false
+**Note:** Urgent notices only (2026-09-26); an everyday notice is a bell row and
+a push. Skip email if PlatformConfig.emailSettings.sendNoticeEmails = false
 
 ---
 
 ### 4.2 Complaint Status Updated
 
-**Trigger:** Hostel admin updates complaint status
+**Trigger:** Hostel admin marks a complaint `REJECTED` (resolved is §4.3).
+Moving it to *in progress* is a bell row only (2026-09-26).
 **Recipients:** Resident who filed the complaint
 **Recipients (guardian):** Guardian ONLY if resident has enabled `complaintStatus` in guardian permissions
 **Template:** `resident/complaint-status-updated`
@@ -1004,13 +1005,33 @@ whole hostel's shared account.
 
 ## Email Opt-In/Opt-Out Matrix
 
-### Resident Control
+### Per-person opt-out *(built 2026-09-26)*
 
-Residents can control:
-- Payment reminders: YES (via settings)
-- Notice emails: YES (via settings)
-- Complaint updates: NO (always sent)
-- SOS alerts to guardian: YES (via guardian permissions)
+Six optional topics (`apps/web/src/modules/notifications/email-topics.ts`, mirrored
+in the app's `lib/notification-preferences.ts`; a test keeps them equal):
+
+| Topic | Who | What |
+|---|---|---|
+| `RENT_REMINDERS` | resident | the dunning ladder's reminders, overdue notices and chases |
+| `NOTICES` | resident | urgent notices |
+| `COMPLAINT_UPDATES` | resident | complaint resolved / rejected |
+| `PAYMENT_SUMMARY` | hostel admins | the morning payments digest, unpaid-fee escalations |
+| `COMPLAINT_ALERTS` | hostel admins | new complaint, complaints past SLA |
+| `ATTENDANCE_ALERTS` | hostel admins | residents away past the threshold |
+
+- **Stored per address**, not per account (`EmailPreference { email, mutedTopics }`),
+  because a resident can be mailed with no login. The app's Settings → Emails
+  writes to every address the account is mailed at (its own and its resident
+  record's).
+- **The gate** is `sendNotificationEmail({ topic })`: a muted address is skipped,
+  and any mail with a topic carries a footer link to `/email-preferences?token=…`
+  and `List-Unsubscribe` / `List-Unsubscribe-Post` headers (RFC 8058) pointing at
+  `POST /api/v1/email-preferences/unsubscribe`. A lookup failure sends.
+- **The token** is the address plus an HMAC (`JWT_ACCESS_SECRET`), with no expiry.
+  Opening the page changes nothing, so link scanners cannot unsubscribe anyone.
+- **Always sent, no topic:** sign-in codes, credentials and invitations,
+  receipts, payment verified/rejected/reversed, plan invoices and reminders,
+  SOS, account and privacy mail, gateway-down alerts, inquiries, bookings.
 
 ### Guardian Control
 

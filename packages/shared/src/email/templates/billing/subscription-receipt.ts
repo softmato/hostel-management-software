@@ -43,7 +43,7 @@ export function subscriptionReceiptEmail(input: {
   return {
     category: "billing",
     subject: settled
-      ? `Thank you! We got your ${formatRupees(input.amount)} payment`
+      ? `We got your ${formatRupees(input.amount)} payment`
       : `We got ${formatRupees(input.amount)}. ${formatRupees(input.outstanding)} left to pay`,
     html: emailLayout({
       bodyHtml: [

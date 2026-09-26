@@ -1,4 +1,3 @@
-import { PLATFORM_NAME } from "../../../brand/brand";
 import {
   ctaButton,
   detailsTable,
@@ -28,58 +27,34 @@ export function paymentVerifiedEmail(input: {
   residentName: string;
 }): EmailContent {
   const currency = input.currency ?? "NPR";
-  const amount = `${currency} ${input.amount.toLocaleString("en-US")}`;
-  const balanceLine =
-    input.remainingAmount > 0
-      ? paragraph(
-          `Still to pay this month: <strong>${escapeHtml(currency)} ${input.remainingAmount.toLocaleString("en-US")}</strong>.`,
-        )
-      : paragraph("This month's fee is fully paid. Thank you!");
-
-  if (input.certificationCode) {
-    return {
-      category: "billing",
-      subject: `Your payment is verified — ${monthName(input.month)} · ${input.hostelName}`,
-      html: emailLayout({
-        heading: "Payment verified ✅",
-        bodyHtml: [
-          paragraph(
-            `Hi ${escapeHtml(input.residentName)}, your payment of <strong>${escapeHtml(amount)}</strong> for <strong>${escapeHtml(monthName(input.month))}</strong> is verified by ${escapeHtml(input.hostelName)}.`,
-          ),
-          paragraph(
-            "Your receipt has been auto-applied to the <strong>Resident Offer Program</strong>.",
-          ),
-          detailsTable([
-            { label: "Receipt number", value: input.receiptNumber },
-            { emphasis: true, label: "Verification code", value: input.certificationCode },
-          ]),
-          balanceLine,
-          paragraph(
-            `You can view your payment receipt in the ${escapeHtml(PLATFORM_NAME)} app, under Offer Program. The PDF is attached to this email too.`,
-          ),
-          ctaButton(input.offerProgramUrl, "View your receipt"),
-        ].join("\n"),
-      }),
-    };
-  }
+  const money = (value: number) => `${currency} ${value.toLocaleString("en-US")}`;
+  const certified = Boolean(input.certificationCode);
 
   return {
     category: "billing",
-    subject: `Thank you! Your payment is received — ${monthName(input.month)} · ${input.hostelName}`,
+    subject: `Payment received — ${monthName(input.month)} · ${input.hostelName}`,
     html: emailLayout({
-      heading: "Payment received ✅",
+      heading: "Payment received",
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} got your payment of <strong>${escapeHtml(amount)}</strong> for <strong>${escapeHtml(monthName(input.month))}</strong>.`,
+          `Hi ${escapeHtml(input.residentName)}, ${escapeHtml(input.hostelName)} got your payment. Thank you.`,
         ),
-        paragraph(
-          `Receipt number: <strong>${escapeHtml(input.receiptNumber)}</strong>`,
-        ),
-        balanceLine,
-        ctaButton(input.paymentsUrl, "View receipt"),
+        detailsTable([
+          { emphasis: true, label: "Amount", value: money(input.amount) },
+          { label: "Month", value: monthName(input.month) },
+          { label: "Receipt number", value: input.receiptNumber },
+          {
+            label: "Still to pay",
+            value: input.remainingAmount > 0 ? money(input.remainingAmount) : "Nothing",
+          },
+          { label: "Verification code", value: input.certificationCode ?? "" },
+        ]),
         smallPrint(
-          "This payment did not have its reference code, so it is not in the Resident Offer Program. Put the code in the remarks next time you pay.",
+          certified
+            ? "This receipt counts for the Resident Offer Program."
+            : "Next time, write your reference code when you pay, so it counts for the Resident Offer Program.",
         ),
+        ctaButton(certified ? input.offerProgramUrl : input.paymentsUrl, "View receipt"),
       ].join("\n"),
     }),
   };

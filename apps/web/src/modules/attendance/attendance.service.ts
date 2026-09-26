@@ -68,6 +68,8 @@ export type NightStatusPromptConfig = {
 export type AttendanceConfig = {
   absenceAlertDays: number;
   enabled: boolean;
+  /** When the geofence was last switched on — the absence alert counts no earlier. */
+  enabledAt?: Date;
   insideZoneRadiusMeters: number;
   nearbyZoneRadiusMeters: number;
   nightStatus: NightStatusPromptConfig;
@@ -543,6 +545,10 @@ export async function updateAttendanceSettings(
      */
     nightStatus: { ...current.nightStatus, ...(settings.nightStatus ?? {}) },
   };
+
+  if (next.enabled && !current.enabled) {
+    next.enabledAt = new Date();
+  }
 
   if (next.nearbyZoneRadiusMeters <= next.insideZoneRadiusMeters) {
     throw new AttendanceServiceError(

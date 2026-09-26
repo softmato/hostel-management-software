@@ -361,6 +361,53 @@ describe("running the job", () => {
     );
   });
 
+  it("puts the three-days-out rung in the bell only", async () => {
+    wirePaging([invoiceAt(7)]);
+
+    const result = await runPaymentReminders(NOW);
+
+    expect(result.reminded).toBe(1);
+    expect(mocks.createNotification).toHaveBeenCalledOnce();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("emails a resident once per run, however many bills moved", async () => {
+    const residentId = new Types.ObjectId();
+
+    wirePaging([
+      invoiceAt(8, { dueDate: NOW, residentId }),
+      invoiceAt(9, { dueDate: new Date(2026, 7, 10), residentId, status: "OVERDUE" }),
+    ]);
+
+    const result = await runPaymentReminders(NOW);
+
+    expect(result.reminded + result.overdueNotified).toBe(2);
+    expect(mocks.createNotification).toHaveBeenCalledTimes(2);
+    expect(mocks.sendEmail).toHaveBeenCalledOnce();
+    expect(mocks.sendEmail.mock.calls[0]![0].action).toBe("payment_overdue");
+  });
+
+  it("tells an owner about every escalated resident in one email", async () => {
+    mocks.adminContacts.mockResolvedValue([
+      { email: "owner@example.test", userId: new Types.ObjectId() },
+    ]);
+    const exhausted = {
+      dueDate: new Date(2026, 5, 1),
+      dunning: { chaseCount: MAX_CHASES, lastNotifiedAt: new Date(2026, 7, 1), stage: "CHASING" },
+      status: "OVERDUE",
+    };
+    wirePaging([invoiceAt(10, exhausted), invoiceAt(11, exhausted)]);
+
+    const result = await runPaymentReminders(NOW);
+
+    expect(result.escalated).toBe(2);
+    expect(mocks.createNotification).toHaveBeenCalledTimes(2);
+    expect(mocks.sendEmail).toHaveBeenCalledOnce();
+    const { html } = mocks.sendEmail.mock.calls[0]![0];
+    expect(html).toContain("Resident 000a");
+    expect(html).toContain("Resident 000b");
+  });
+
   it("sends nothing at all once the invoice is stopped", async () => {
     wirePaging([
       invoiceAt(4, {
@@ -390,7 +437,7 @@ describe("running the job", () => {
     // resident is never told at that stage — the same class of bug as the
     // exact-day equality this rebuild removed.
     mocks.residentContact.mockRejectedValue(new Error("smtp down"));
-    wirePaging([invoiceAt(6)]);
+    wirePaging([invoiceAt(6, { dueDate: NOW })]);
 
     const result = await runPaymentReminders(NOW);
 

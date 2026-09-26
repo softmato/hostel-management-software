@@ -61,7 +61,8 @@ import {
 } from "@/lib/night-status-queue";
 import {
   HAS_NATIVE_NIGHT_PROMPT,
-  takeNativePendingAnswers,
+  readNativePendingAnswers,
+  removeNativePendingAnswer,
 } from "@/lib/night-prompt-native";
 import { readTokens } from "@/lib/session";
 
@@ -298,12 +299,30 @@ export async function flushNightStatusQueue(
   currentNight: string | null = null,
 ): Promise<number> {
   /*
-   * Answers the native Android handler could not send go through the same
-   * queue, so there is one place that decides what is stale and one loop that
-   * sends.
+   * Answers the native Android handler has not sent are tried here too, but
+   * stay with it until the server takes them. Taking them into this queue lost
+   * them for the offline case: an app opened offline and closed again holds
+   * them until it is next opened, while the native retry job sends them the
+   * moment the phone is back online. Only one without an answer token — which
+   * native code can never send — moves across.
    */
-  for (const pending of takeNativePendingAnswers()) {
-    await enqueueNightStatus(pending);
+  for (const pending of readNativePendingAnswers()) {
+    const stale = Boolean(
+      currentNight && pending.night && pending.night !== currentNight,
+    );
+
+    if (stale || !pending.answerToken) {
+      if (!stale) {
+        await enqueueNightStatus(pending);
+      }
+
+      removeNativePendingAnswer(pending.answeredAt);
+      continue;
+    }
+
+    if (await postAnswer(pending)) {
+      removeNativePendingAnswer(pending.answeredAt);
+    }
   }
 
   const queue = await readNightStatusQueue();

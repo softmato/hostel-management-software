@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/db", () => ({ connectToDatabase: mocks.connectToDatabase }));
 
+vi.mock("@hostel/db/models/EmailPreference", () => ({
+  EmailPreferenceModel: { exists: vi.fn().mockResolvedValue(null) },
+}));
 vi.mock("@hostel/db/models/AuditLog", () => ({
   AuditLogModel: { create: mocks.auditCreate },
 }));
@@ -126,6 +129,13 @@ describe("notice broadcast", () => {
       expect.objectContaining({ category: "NOTICE", userId: residentUserId.toString() }),
     );
     expect(mocks.sendEmail.mock.calls[0][0].subject).toContain("Urgent notice");
+  });
+
+  it("keeps an everyday notice out of the inbox", async () => {
+    const result = await createNotice({ ...noticeInput, isUrgent: false }, staffPrincipal);
+
+    expect(result.delivery).toEqual({ emailed: 0, notified: 1 });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it("still records in-app notifications when notice emails are switched off", async () => {

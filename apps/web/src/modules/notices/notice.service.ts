@@ -214,8 +214,10 @@ type BroadcastOptions = {
 
 /**
  * Fans a published notice out to the hostel's active residents: an in-app
- * notification always, plus an email when the platform has notice emails
- * enabled (EMAIL_SYSTEM.md). Delivery problems never fail the publish.
+ * notification always, plus an email for an urgent notice when the platform has
+ * notice emails enabled (EMAIL_SYSTEM.md). Everyday notices stay in the bell and
+ * the push — a hostel posts several a week, and one email each is a flood.
+ * Delivery problems never fail the publish.
  */
 async function broadcastNotice(notice: NoticeRecord, options: BroadcastOptions = {}) {
   try {
@@ -275,7 +277,7 @@ async function deliverNoticeBroadcast(notice: NoticeRecord, options: BroadcastOp
       });
     }
 
-    if (!config.sendNoticeEmails || options.email === false) {
+    if (!notice.isUrgent || !config.sendNoticeEmails || options.email === false) {
       continue;
     }
 
@@ -284,6 +286,7 @@ async function deliverNoticeBroadcast(notice: NoticeRecord, options: BroadcastOp
       html: email.html,
       subject: email.subject,
       to: recipient.email,
+      topic: "NOTICES",
     });
 
     if (sent) {

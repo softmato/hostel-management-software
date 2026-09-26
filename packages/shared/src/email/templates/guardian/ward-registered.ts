@@ -1,4 +1,4 @@
-import { emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { detailsTable, emailDate, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
 
 /**
  * Tells a guardian that the person they are guardian to now lives at a hostel.
@@ -30,36 +30,24 @@ export function wardRegisteredEmail(input: {
   residentName: string;
   roomType?: string | null;
 }): EmailContent {
-  const facts = [
-    `Hostel: <strong>${escapeHtml(input.hostelName)}</strong>`,
-    input.roomType
-      ? `Room: <strong>${escapeHtml(input.roomType.replaceAll("_", " "))}</strong>`
-      : "",
-    input.moveInDate
-      ? `Moving in: <strong>${escapeHtml(input.moveInDate.toDateString())}</strong>`
-      : "",
-    input.hostelPhone
-      ? `Hostel phone: <strong>${escapeHtml(input.hostelPhone)}</strong>`
-      : "",
-  ].filter(Boolean);
-
   return {
     category: "info",
     subject: `${input.residentName} now stays at ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your child is added to the hostel",
+      heading: `${input.residentName} now stays at ${input.hostelName}`,
       bodyHtml: [
         paragraph(
           `Hi ${escapeHtml(input.guardianName)}, <strong>${escapeHtml(input.hostelName)}</strong> added <strong>${escapeHtml(input.residentName)}</strong> as a resident and added you as their ${escapeHtml(
             input.relation?.toLowerCase() || "guardian",
           )}.`,
         ),
-        `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
-          .map((fact) => `<li>${fact}</li>`)
-          .join("")}</ul>`,
-        paragraph(
-          "The hostel will call you in an emergency. If anything here is wrong, tell the hostel.",
-        ),
+        detailsTable([
+          { label: "Hostel", value: input.hostelName },
+          { label: "Room", value: input.roomType?.replaceAll("_", " ") ?? "" },
+          { label: "Moving in", value: emailDate(input.moveInDate) ?? "" },
+          { label: "Hostel phone", value: input.hostelPhone ?? "" },
+        ]),
+        paragraph("The hostel will call you in an emergency. Something wrong? Tell the hostel."),
       ].join("\n"),
     }),
   };

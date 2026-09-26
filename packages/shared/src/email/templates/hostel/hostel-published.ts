@@ -9,7 +9,7 @@ export function hostelPublishedEmail(input: {
     category: "info",
     subject: `Your hostel is now online — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Your hostel is online 🎉",
+      heading: "Your hostel is online",
       bodyHtml: [
         paragraph(
           `<strong>${escapeHtml(input.hostelName)}</strong> is now on ${PLATFORM_NAME}. Students looking for a hostel can see it.`,

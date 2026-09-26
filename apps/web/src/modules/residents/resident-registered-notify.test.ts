@@ -196,7 +196,7 @@ describe("emailing the resident", () => {
     expect(sent.subject).toContain("Rupa Hostel");
     // The part month is named, or an amount well under the rent reads as a
     // billing fault and the resident's first act is to query a correct bill.
-    expect(sent.html).toContain("only from the day you move in");
+    expect(sent.html).toContain("Only from the day you move in");
     expect(sent.html).toContain("HH-0007");
   });
 

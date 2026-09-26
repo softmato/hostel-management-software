@@ -1,4 +1,4 @@
-import { ctaButton, emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import { ctaButton, detailsTable, emailLayout, paragraph, type EmailContent } from "../layout";
 
 /**
  * EMAIL_SYSTEM.md §7.1 — a hostel was submitted and is waiting for review.
@@ -14,24 +14,19 @@ export function newHostelPendingEmail(input: {
   ownerName?: string;
   queueUrl: string;
 }): EmailContent {
-  const details = [
-    `<strong>Hostel:</strong> ${escapeHtml(input.hostelName)}`,
-    input.city ? `<strong>City:</strong> ${escapeHtml(input.city)}` : null,
-    input.ownerName ? `<strong>Owner:</strong> ${escapeHtml(input.ownerName)}` : null,
-    input.ownerEmail ? `<strong>Email:</strong> ${escapeHtml(input.ownerEmail)}` : null,
-  ].filter(Boolean) as string[];
-
   return {
     category: "info",
     subject: `New hostel to check — ${input.hostelName}`,
     html: emailLayout({
       heading: "New hostel to check",
       bodyHtml: [
-        paragraph("A new hostel was added. It is waiting for approval."),
-        paragraph(details.join("<br/>")),
-        paragraph(
-          "Check the documents first. When you approve, the owner gets admin access.",
-        ),
+        paragraph("A new hostel is waiting for approval. Check the documents first."),
+        detailsTable([
+          { label: "Hostel", value: input.hostelName },
+          { label: "City", value: input.city ?? "" },
+          { label: "Owner", value: input.ownerName ?? "" },
+          { label: "Email", value: input.ownerEmail ?? "" },
+        ]),
         ctaButton(input.queueUrl, "Check hostel"),
       ].join("\n"),
     }),

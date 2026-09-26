@@ -1705,7 +1705,7 @@ async function fileTeamRegistration(
     entityType: "Hostel",
     hostelId: hostel._id,
     metadata: {
-      amountCollected: prepayment?.paid ? prepayment.amount : input.payment.amount,
+      amountCollected: prepayment?.paid ? (prepayment.chargeAmount ?? prepayment.amount) : input.payment.amount,
       method: input.payment.method,
       outstanding: state?.outstanding ?? 0,
       planId: input.plan.planId,
@@ -1715,7 +1715,7 @@ async function fileTeamRegistration(
 
   await onRegisteredByTeam({
     agentName: agent.name,
-    amountPaid: prepayment?.paid ? prepayment.amount : input.payment.amount,
+    amountPaid: prepayment?.paid ? (prepayment.chargeAmount ?? prepayment.amount) : input.payment.amount,
     dueBy: state?.subscription.dueBy ? new Date(state.subscription.dueBy) : null,
     hostelName: input.name,
     hostelSlug: slug,

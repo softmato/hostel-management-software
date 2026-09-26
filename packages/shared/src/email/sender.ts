@@ -5,6 +5,7 @@ import {
   resolveEmailIdentity,
   type EmailCategory,
 } from "./identity";
+import { UNSUBSCRIBE_SLOT } from "./templates/layout";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -32,7 +33,22 @@ export type SendEmailInput = {
   html: string;
   /** Overrides the configured reply address for this one send. */
   replyTo?: string;
+  /**
+   * For optional mail only. Adds an unsubscribe line to the footer (`pageUrl`)
+   * and the `List-Unsubscribe` one-click headers (RFC 8058, `oneClickUrl`), which
+   * Gmail and Yahoo show as their own Unsubscribe button.
+   */
+  unsubscribe?: { oneClickUrl: string; pageUrl: string };
 };
+
+/** The footer line, in the layout's slot — or appended to a bare HTML fragment. */
+export function withUnsubscribeLine(html: string, pageUrl: string) {
+  const line = `<a href="${pageUrl.replace(/&/g, "&amp;")}" style="color:inherit;text-decoration:underline;">Unsubscribe or choose which emails you get</a>`;
+
+  return html.includes(UNSUBSCRIBE_SLOT)
+    ? html.replace(UNSUBSCRIBE_SLOT, `<br>${line}`)
+    : `${html}<p style="margin-top:24px;font-size:12px;line-height:18px;color:#71717a;">${line}</p>`;
+}
 
 export type SendEmailResult =
   | { sent: true; id: string }
@@ -82,7 +98,17 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         from,
         to: Array.isArray(input.to) ? input.to : [input.to],
         subject: input.subject,
-        html: input.html,
+        html: input.unsubscribe
+          ? withUnsubscribeLine(input.html, input.unsubscribe.pageUrl)
+          : input.html,
+        ...(input.unsubscribe
+          ? {
+              headers: {
+                "List-Unsubscribe": `<${input.unsubscribe.oneClickUrl}>`,
+                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+              },
+            }
+          : {}),
         ...(input.attachments?.length
           ? {
               attachments: input.attachments.map((attachment) => ({

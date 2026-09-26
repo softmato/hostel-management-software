@@ -89,7 +89,9 @@ All times are **Nepal time**, which is why the time zone must be `Asia/Kathmandu
 - Header: `x-cron-secret`: `<CRON_SECRET>`
 - Crontab: `45 7 * * *` (every day at 07:45)
 
-This job sends residents' rent reminders (email and bell). Plan payment
+This job sends residents' rent reminders (email and bell), then each hostel's
+one payments digest email to its admins — so a manual TEST RUN sends that digest
+again. Plan payment
 reminders and the resident fee pushes are **automatic rows on the superadmin
 Push tab** (08:00 and 21:00 Nepal time), sent by the every-minute
 `platform-push` job — nothing else to add on cron-job.org. Details are in

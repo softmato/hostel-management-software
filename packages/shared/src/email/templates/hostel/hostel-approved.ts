@@ -53,9 +53,9 @@ export function hostelApprovedEmail(input: {
 
   return {
     category: "info",
-    subject: `Good news! Your hostel is approved — ${input.hostelName}`,
+    subject: `Your hostel is approved — ${input.hostelName}`,
     html: emailLayout({
-      heading: "Hostel approved 🎉",
+      heading: "Hostel approved",
       bodyHtml: [
         paragraph(
           `<strong>${escapeHtml(input.hostelName)}</strong> is approved. It is now on ${PLATFORM_NAME}.`,

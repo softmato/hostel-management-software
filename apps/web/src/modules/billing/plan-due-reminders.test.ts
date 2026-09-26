@@ -67,6 +67,7 @@ vi.mock("@hostel/shared/email/sender", () => ({ sendEmail: mocks.sendEmail }));
 
 import {
   composePlanDueNotice,
+  planEmailsToday,
   planRemindsToday,
   sendPlanDueReminders,
 } from "@/modules/billing/plan-due-reminders.service";
@@ -94,6 +95,12 @@ describe("which days are reminded", () => {
     expect(days.filter((daysUntilDue) => decide({ daysUntilDue }))).toEqual([
       7, 5, 3, 2, 1, 0, -1, -2, -30,
     ]);
+  });
+
+  it("emails a week out, three days out, on the day, then weekly while late", () => {
+    const days = [9, 7, 5, 3, 2, 1, 0, -1, -6, -7, -8, -14, -30];
+
+    expect(days.filter(planEmailsToday)).toEqual([7, 3, 0, -7, -14]);
   });
 
   it("leaves the early heads-ups to the morning run", () => {
@@ -190,7 +197,7 @@ describe("sendPlanDueReminders", () => {
   });
 
   it("emails the owner the website link and pushes the facts to the admins", async () => {
-    mocks.invoiceFind.mockReturnValue(query([invoice()]));
+    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, 3) })]));
 
     const result = await sendPlanDueReminders(MORNING);
 
@@ -198,7 +205,7 @@ describe("sendPlanDueReminders", () => {
 
     const sent = mocks.sendEmail.mock.calls[0]![0];
     expect(sent.to).toBe("sita@example.test");
-    expect(sent.subject).toBe("Please pay your hostel plan fee tomorrow — Rupa Hostel");
+    expect(sent.subject).toBe("Please pay your hostel plan fee in 3 days — Rupa Hostel");
     expect(sent.html).toContain("Pay on the HostelPalika website");
     expect(sent.html).toContain("https://example.test/rupa-hostel/admin/billing");
 
@@ -208,9 +215,18 @@ describe("sendPlanDueReminders", () => {
       expect.objectContaining({
         category: "PAYMENT",
         data: expect.objectContaining({ hostelSlug: "rupa-hostel", type: "PLAN_DUE" }),
-        title: "Plan payment due tomorrow",
+        title: "Plan payment due in 3 days",
       }),
     );
+  });
+
+  it("pushes without an email on the days between", async () => {
+    mocks.invoiceFind.mockReturnValue(query([invoice()]));
+
+    const result = await sendPlanDueReminders(MORNING);
+
+    expect(result).toEqual({ devices: 3, emails: 0, recipients: 2 });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it("sends the evening push without another email", async () => {
@@ -257,7 +273,7 @@ describe("sendPlanDueReminders", () => {
 
   it("emails a hostel that is not live yet, and pushes nothing to it", async () => {
     mocks.hostelFind.mockReturnValue(query([hostel("PENDING")]));
-    mocks.invoiceFind.mockReturnValue(query([invoice()]));
+    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, 0) })]));
 
     const result = await sendPlanDueReminders(MORNING);
 
@@ -270,15 +286,15 @@ describe("sendPlanDueReminders", () => {
     expect(html).toContain("Your hostel shows online after you pay.");
   });
 
-  it("sends a live hostel that still owes the overdue email every morning", async () => {
-    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, -12) })]));
+  it("sends a live hostel that still owes the overdue email once a week", async () => {
+    mocks.invoiceFind.mockReturnValue(query([invoice({ dueAt: hostelDayEnd(NOW, -14) })]));
 
     await sendPlanDueReminders(MORNING);
 
     expect(mocks.sendEmail.mock.calls[0]![0].subject).toBe(
       "Please pay your hostel plan fee — Rupa Hostel",
     );
-    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment overdue by 12 days");
+    expect(mocks.sendPush.mock.calls[0]![1].title).toBe("Plan payment overdue by 14 days");
   });
 });
 

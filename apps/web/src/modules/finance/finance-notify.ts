@@ -10,12 +10,16 @@ import {
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
 import { renderReceiptById } from "@/modules/finance/receipt.service";
+import { InvoiceModel } from "@hostel/db/models/Invoice";
+import { PaymentEventModel } from "@hostel/db/models/PaymentEvent";
+import { ReceiptModel } from "@hostel/db/models/Receipt";
 import { ResidentModel } from "@hostel/db/models/Resident";
 import type { EmailAttachment } from "@hostel/shared/email/sender";
+import {
+  type PaymentLine,
+  paymentSummaryEmail,
+} from "@hostel/shared/email/templates/hostel/staff-alerts";
 import { gatewayUnhealthyEmail } from "@hostel/shared/email/templates/payment/gateway-unhealthy";
-import { paymentClearedEmail } from "@hostel/shared/email/templates/payment/payment-cleared";
-import { paymentProofReceivedEmail } from "@hostel/shared/email/templates/payment/proof-received";
-import { paymentProofUploadedEmail } from "@hostel/shared/email/templates/payment/proof-uploaded";
 import { paymentRejectedEmail } from "@hostel/shared/email/templates/payment/payment-rejected";
 import { paymentReversedEmail } from "@hostel/shared/email/templates/payment/payment-reversed";
 import { paymentVerifiedEmail } from "@hostel/shared/email/templates/payment/payment-verified";
@@ -40,28 +44,12 @@ export async function notifyAdminsOfClaim(input: {
   transactionCode?: string | null;
 }): Promise<void> {
   try {
-    // `sendPaymentEmails` is an *email* switch (item 0.6). Gating the whole
-    // function on it left the verification queue with nothing pointing at it.
-    const config = await getOperationsConfig();
-
-    const [hostelName, admins] = await Promise.all([
-      getHostelName(input.resident.hostelId),
-      resolveHostelAdminContacts(input.resident.hostelId),
-    ]);
+    // Bell and push only. The email is the morning digest
+    // (`sendAdminPaymentDigest`) — one per claim was dozens a day at month start.
+    const admins = await resolveHostelAdminContacts(input.resident.hostelId);
 
     const residentName =
       `${input.resident.firstName ?? ""} ${input.resident.lastName ?? ""}`.trim();
-    const email = paymentProofUploadedEmail({
-      amount: input.amount,
-      hostelName,
-      invoiceReference: input.invoiceReference ?? undefined,
-      method: input.method,
-      month: input.period ?? "",
-      referenceNote: input.referenceNote ?? undefined,
-      residentName,
-      reviewUrl: appUrl("/hostel-admin/payments"),
-      transactionCode: input.transactionCode ?? undefined,
-    });
 
     await Promise.all(
       admins.map(async (admin) => {
@@ -89,15 +77,6 @@ export async function notifyAdminsOfClaim(input: {
             userId: admin.userId.toString(),
           });
         }
-
-        if (config.sendPaymentEmails) {
-          await sendNotificationEmail({
-            action: "payment_proof_uploaded",
-            html: email.html,
-            subject: email.subject,
-            to: admin.email,
-          });
-        }
       }),
     );
   } catch (error) {
@@ -122,11 +101,6 @@ export async function notifyAdminsOfClaim(input: {
  * pays twice or calls — and the second claim is refused as a duplicate, which
  * reads to them as the system losing their money.
  *
- * **The in-app notification is outside the email switch**, for the reason item
- * 0.6 established across this module: `sendPaymentEmails` turns off *email*, and
- * a hostel that turned it off must not thereby stop telling residents anything at
- * all.
- *
  * **Never throws.** The claim is recorded before this runs. A mail server having
  * a bad day must not turn a successful submission into an error the resident
  * sees, because the retry they would then make is the duplicate above.
@@ -144,24 +118,15 @@ export async function notifyResidentOfClaim(input: {
     const resident = await ResidentModel.findOne({
       _id: input.residentId,
       isDeleted: false,
-    }).lean<{
-      _id: Types.ObjectId;
-      email?: string;
-      firstName: string;
-      lastName: string;
-      userId?: Types.ObjectId;
-    } | null>();
+    }).lean<{ userId?: Types.ObjectId } | null>();
 
     if (!resident) {
       return;
     }
 
-    const [config, hostelName, contact] = await Promise.all([
-      getOperationsConfig(),
-      getHostelName(input.hostelId),
-      resolveResidentContact(resident),
-    ]);
-
+    // Bell only. The resident is signed in when they upload, so the row lands on
+    // the screen they are looking at; an email saying the same thing, followed
+    // by the "verified" email, was two messages for one payment.
     if (resident.userId) {
       await createInAppNotification({
         // The row is informational — `kind: "NORMAL"` keeps it out of the
@@ -180,27 +145,6 @@ export async function notifyResidentOfClaim(input: {
         userId: resident.userId.toString(),
       });
     }
-
-    if (!contact || !config.sendPaymentEmails) {
-      return;
-    }
-
-    const email = paymentProofReceivedEmail({
-      amount: input.amount,
-      hostelName,
-      month: input.period ?? "",
-      offerProgramUrl: appUrl("/resident-offer-program"),
-      paymentsUrl: appUrl("/resident/payments"),
-      referenceCode: input.referenceCode,
-      residentName: contact.name ?? resident.firstName,
-    });
-
-    await sendNotificationEmail({
-      action: "payment_proof_received",
-      html: email.html,
-      subject: email.subject,
-      to: contact.email,
-    });
   } catch (error) {
     console.warn(
       JSON.stringify({
@@ -369,23 +313,6 @@ export async function notifyClaimReviewed(input: {
     });
   }
 
-  // The owner's confirmation is sent even when the resident has no contact
-  // email on file — the two are separate recipients answering separate
-  // questions, and a resident without an address is not a reason to leave the
-  // hostel wondering whether the money landed.
-  if (input.outcome.kind === "verified" && config.sendPaymentEmails) {
-    await notifyAdminsOfClearedPayment({
-      amount: input.outcome.verifiedAmount,
-      hostelId: input.hostelId,
-      hostelName,
-      method: input.outcome.method ?? "OTHER",
-      period: input.period,
-      receiptNumber: input.outcome.receiptNumber,
-      remainingAmount: input.outcome.remainingAmount,
-      residentName: `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
-    });
-  }
-
   if (!contact || !config.sendPaymentEmails) {
     return;
   }
@@ -452,55 +379,126 @@ async function receiptAttachment(
 }
 
 /**
- * Tell the hostel's admins a payment cleared.
+ * The morning payments email to each hostel's admins: proofs still waiting to
+ * be verified, and money that cleared in the last day.
  *
- * **Never throws**, for the same reason as {@link notifyAdminsOfClaim}: the
- * money has already settled and the receipt is already issued by the time this
- * runs. A mail server having a bad day must not turn a completed approval into
- * an error the owner sees.
+ * It replaces an email per claim and an email per cleared payment, which at the
+ * start of a month was dozens a day to the same owner. The bell and push still
+ * fire per claim as it arrives; this is the inbox's one summary. A hostel with
+ * nothing in either line gets nothing.
+ *
+ * Runs on the `payment-reminders` cron (07:45 Nepal). **Never throws.**
  */
-async function notifyAdminsOfClearedPayment(input: {
-  amount: number;
-  hostelId: Types.ObjectId | string;
-  hostelName: string;
-  method: string;
-  period: string | null;
-  receiptNumber: string | null;
-  remainingAmount: number;
-  residentName: string;
-}): Promise<void> {
+export async function sendAdminPaymentDigest(now = new Date()) {
+  let hostels = 0;
+
   try {
-    const admins = await resolveHostelAdminContacts(input.hostelId);
-    const email = paymentClearedEmail({
-      amount: input.amount,
-      hostelName: input.hostelName,
-      method: input.method,
-      month: input.period ?? "",
-      paymentsUrl: appUrl("/hostel-admin/payments"),
-      receiptNumber: input.receiptNumber ?? "",
-      remainingAmount: input.remainingAmount,
-      residentName: input.residentName,
+    const config = await getOperationsConfig();
+
+    if (!config.sendPaymentEmails) {
+      return { hostels };
+    }
+
+    type Row = {
+      amount: number;
+      hostelId: Types.ObjectId;
+      invoiceId?: Types.ObjectId | null;
+      month?: string | null;
+      residentId?: Types.ObjectId | null;
+    };
+    const since = new Date(now.getTime() - 86_400_000);
+    // ponytail: platform-wide reads; add `{ source, status }` / `{ issuedAt }` indexes if these grow.
+    const [waiting, received] = await Promise.all([
+      PaymentEventModel.find({ source: "RESIDENT_CLAIM", status: "PENDING" })
+        .select("amount hostelId invoiceId residentId")
+        .lean<Row[]>(),
+      ReceiptModel.find({ issuedAt: { $gte: since, $lt: now }, voidedAt: null })
+        .select("amount hostelId month residentId")
+        .lean<Row[]>(),
+    ]);
+
+    if (waiting.length + received.length === 0) {
+      return { hostels };
+    }
+
+    const [residents, invoices] = await Promise.all([
+      ResidentModel.find({
+        _id: { $in: [...waiting, ...received].map((row) => row.residentId).filter(Boolean) },
+      })
+        .select("firstName lastName")
+        .lean<{ _id: Types.ObjectId; firstName?: string; lastName?: string }[]>(),
+      InvoiceModel.find({ _id: { $in: waiting.map((row) => row.invoiceId).filter(Boolean) } })
+        .select("period")
+        .lean<{ _id: Types.ObjectId; period?: string | null }[]>(),
+    ]);
+    const names = new Map(
+      residents.map((resident) => [
+        resident._id.toString(),
+        `${resident.firstName ?? ""} ${resident.lastName ?? ""}`.trim(),
+      ]),
+    );
+    const periods = new Map(invoices.map((invoice) => [invoice._id.toString(), invoice.period]));
+    const byHostel = new Map<string, { received: PaymentLine[]; waiting: PaymentLine[] }>();
+    const lists = (hostelId: Types.ObjectId) => {
+      const key = hostelId.toString();
+
+      if (!byHostel.has(key)) {
+        byHostel.set(key, { received: [], waiting: [] });
+      }
+
+      return byHostel.get(key)!;
+    };
+    const line = (row: Row, month?: string | null): PaymentLine => ({
+      amount: row.amount,
+      month,
+      name: names.get(String(row.residentId)) || "Resident",
     });
 
+    for (const row of waiting) {
+      lists(row.hostelId).waiting.push(line(row, periods.get(String(row.invoiceId))));
+    }
+
+    for (const row of received) {
+      lists(row.hostelId).received.push(line(row, row.month));
+    }
+
     await Promise.all(
-      admins.map((admin) =>
-        sendNotificationEmail({
-          action: "payment_cleared",
-          html: email.html,
-          subject: email.subject,
-          to: admin.email,
-        }),
-      ),
+      [...byHostel].map(async ([hostelId, tally]) => {
+        const [hostelName, admins] = await Promise.all([
+          getHostelName(hostelId),
+          resolveHostelAdminContacts(hostelId),
+        ]);
+        const email = paymentSummaryEmail({
+          ...tally,
+          hostelName,
+          paymentsUrl: appUrl("/hostel-admin/payments"),
+        });
+
+        await Promise.all(
+          admins.map((admin) =>
+            sendNotificationEmail({
+              action: "payment_digest",
+              html: email.html,
+              subject: email.subject,
+              to: admin.email,
+              topic: "PAYMENT_SUMMARY",
+            }),
+          ),
+        );
+        hostels += 1;
+      }),
     );
   } catch (error) {
     console.warn(
       JSON.stringify({
-        action: "payment_cleared_notification_failed",
+        action: "payment_digest_failed",
         level: "warn",
         message: error instanceof Error ? error.message : "Unknown notification error",
       }),
     );
   }
+
+  return { hostels };
 }
 
 /**

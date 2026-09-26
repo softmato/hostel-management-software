@@ -50,6 +50,8 @@ export const teamPrepaymentSchema = z.object({
   ownerName: z.string().trim().min(1, "Fill in the owner's name first."),
   phone: z.string().trim().min(1, "Fill in the owner's phone first."),
   planId: z.string().trim().min(1, "Pick a plan first."),
+  /** A part amount the owner pays online now; omitted means the full plan price. */
+  amount: z.number().int("Whole rupees only.").positive("Enter an amount above zero.").optional(),
   /** The row this form already opened, so a retry reuses it. */
   prepaymentId: z.string().trim().optional(),
   /** The form as it stands, kept on the row so a paid hostel never lives in one browser only. */
@@ -63,6 +65,7 @@ type PrepaymentRow = {
   agentId: Types.ObjectId;
   amount: number;
   billedTo?: { email?: string | null; hostelName?: string | null; name?: string | null };
+  chargeAmount?: number | null;
   cycle: BillingCycle;
   cycleMonths: number;
   hostelId: Types.ObjectId;
@@ -77,9 +80,14 @@ type PrepaymentRow = {
   transactionNo?: string | null;
 };
 
-/** What the form shows. `reference` is Softmato's transaction, else its invoice. */
+/**
+ * What the form shows. `amount` is the plan price the hostel is invoiced for;
+ * `chargeAmount` is what this payment takes. `reference` is Softmato's
+ * transaction, else its invoice.
+ */
 export type TeamPrepaymentView = {
   amount: number;
+  chargeAmount: number;
   cycle: BillingCycle;
   id: string;
   paidAt: string | null;
@@ -96,9 +104,15 @@ const CYCLE_WORDS: Record<BillingCycle, string> = {
   monthly: "monthly",
 };
 
+/** What the owner pays online on this row: a part amount, else the whole price. */
+function charge(row: Pick<PrepaymentRow, "amount" | "chargeAmount">) {
+  return row.chargeAmount ?? row.amount;
+}
+
 function view(row: PrepaymentRow): TeamPrepaymentView {
   return {
     amount: row.amount,
+    chargeAmount: charge(row),
     cycle: row.cycle,
     id: String(row._id),
     paidAt: row.paidAt?.toISOString() ?? null,
@@ -147,7 +161,7 @@ export async function markTeamPrepaymentPaid(
       actorType: "SYSTEM",
       entityId: String(id),
       entityType: "TeamPrepayment",
-      metadata: { amount: paid.amount, invoiceNumber: paid.invoiceNumber, transactionNo: fields.transactionNo },
+      metadata: { amount: charge(paid), invoiceNumber: paid.invoiceNumber, transactionNo: fields.transactionNo },
     });
 
     return paid;
@@ -200,6 +214,18 @@ export async function openTeamPrepayment(
 
   // Priced here, from the catalogue as it sells today — never from the form.
   const priced = await pricePlan(input.planId, input.cycle);
+
+  if (input.amount !== undefined && input.amount > priced.cycleTotal) {
+    throw new SubscriptionError(
+      `Can't be more than the plan price of Rs ${priced.cycleTotal}.`,
+      "PREPAYMENT_ABOVE_PRICE",
+      422,
+    );
+  }
+
+  // Only a part amount is stored; the full price stays the default.
+  const chargeAmount =
+    input.amount !== undefined && input.amount < priced.cycleTotal ? input.amount : null;
   const previous = input.prepaymentId
     ? await refresh(await loadOwned(input.prepaymentId, agent))
     : null;
@@ -218,13 +244,14 @@ export async function openTeamPrepayment(
     previous?.status === "OPEN" &&
     previous.planId === priced.planId &&
     previous.cycle === priced.cycle &&
-    previous.amount === priced.cycleTotal
+    previous.amount === priced.cycleTotal &&
+    (previous.chargeAmount ?? null) === chargeAmount
       ? previous
       : null;
 
   if (!row) {
     /*
-     * A different plan, cycle or price: a fresh row with a fresh number, since a
+     * A different plan, cycle, price or part amount: a fresh row with a fresh number, since a
      * Softmato reference answers with the invoice it already has. The old one is
      * unpaid, so nothing is lost; it keeps the hostel id so the customer stays
      * the same one on their side.
@@ -245,6 +272,7 @@ export async function openTeamPrepayment(
         hostelName: input.hostelName,
         name: input.ownerName,
       },
+      chargeAmount,
       cycle: priced.cycle,
       cycleMonths: priced.cycleMonths,
       hostelId,
@@ -266,29 +294,37 @@ export async function openTeamPrepayment(
      * The same document a first plan invoice gets, built by the same function:
      * this row stands in for the invoice until publish creates the real one on
      * top of it. There is no subscription yet, so none is found.
+     *
+     * Checkout charges the document's own due and takes no amount, so a part
+     * payment is a document for the part. The hostel's invoice keeps the full
+     * price at publish, and the balance gets its own document when it is paid
+     * (`balance-document.ts`), exactly as after part cash.
      */
+    const document = await invoiceDocumentInput({
+      _id: row._id,
+      amount: charge(row),
+      billedTo: {
+        email: row.billedTo?.email ?? undefined,
+        hostelName: row.billedTo?.hostelName ?? undefined,
+        name: row.billedTo?.name ?? undefined,
+      },
+      cycle: row.cycle,
+      cycleMonths: row.cycleMonths,
+      hostelId: row.hostelId,
+      invoiceNumber: row.invoiceNumber,
+      issuedAt,
+      periodEnd: period.endsAt,
+      periodStart: period.startsAt,
+      planId: row.planId,
+      planName: row.planName,
+      source: "TEAM",
+      status: "OPEN",
+      subscriptionId: null,
+    } as unknown as InvoiceRecord);
     const raised = await issueInvoiceDocument(
-      await invoiceDocumentInput({
-        _id: row._id,
-        amount: row.amount,
-        billedTo: {
-          email: row.billedTo?.email ?? undefined,
-          hostelName: row.billedTo?.hostelName ?? undefined,
-          name: row.billedTo?.name ?? undefined,
-        },
-        cycle: row.cycle,
-        cycleMonths: row.cycleMonths,
-        hostelId: row.hostelId,
-        invoiceNumber: row.invoiceNumber,
-        issuedAt,
-        periodEnd: period.endsAt,
-        periodStart: period.startsAt,
-        planId: row.planId,
-        planName: row.planName,
-        source: "TEAM",
-        status: "OPEN",
-        subscriptionId: null,
-      } as unknown as InvoiceRecord),
+      row.chargeAmount
+        ? { ...document, description: `Part payment — ${document.description}` }
+        : document,
     );
 
     await TeamPrepaymentModel.updateOne(
@@ -449,12 +485,17 @@ export async function releaseTeamPrepayment(claim: { _id: Types.ObjectId; paid: 
  * arrives later finds this row by its transaction (or its amount) and stops.
  */
 export async function settleTeamPrepayment(
-  row: { amount: number; provider?: string | null; transactionNo?: string | null },
+  row: {
+    amount: number;
+    chargeAmount?: number | null;
+    provider?: string | null;
+    transactionNo?: string | null;
+  },
   invoice: { _id: Types.ObjectId; hostelId: Types.ObjectId; subscriptionId: Types.ObjectId },
   actorId: string,
 ) {
   const payment = await SubscriptionPaymentModel.create({
-    amount: row.amount,
+    amount: charge(row),
     hostelId: invoice.hostelId,
     invoiceId: invoice._id,
     method: "SOFTMATO",

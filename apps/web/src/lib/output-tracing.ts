@@ -43,8 +43,9 @@ export const PDF_LIB_ROUTES = [
   "/api/v1/cron/ledger-drift/**",
   // Plan-due reminders render the invoice PDF, and they run from the push
   // schedule now — the dispatch cron and the Push tab's own routes reach them.
-  // `payment-reminders` stopped reaching it when the reminders moved.
   "/api/v1/cron/notification-dispatch/**",
+  // The admins' payments summary lives in `finance-notify`, beside receipts.
+  "/api/v1/cron/payment-reminders/**",
   "/api/v1/cron/platform-push/**",
   "/api/v1/files/*/complete/**",
   "/api/v1/files/upload/**",

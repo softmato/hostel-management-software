@@ -530,7 +530,7 @@ describe("reviewBookingPayment", () => {
 
     expect(sent.emails.map((email) => [email.to, email.subject])).toEqual(
       expect.arrayContaining([
-        ["sita@example.test", expect.stringMatching(/^Thank you! We got your booking fee/)],
+        ["sita@example.test", expect.stringMatching(/^We got your booking fee/)],
         ["owner@everest.test", expect.stringMatching(/^New booking from Sita Sharma — please answer by /)],
       ]),
     );

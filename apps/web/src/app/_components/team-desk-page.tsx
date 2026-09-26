@@ -557,7 +557,12 @@ function PaidNotPublished({ rows }: { rows: UnpublishedPrepayment[] }) {
                   {row.reference ? ` · ${row.reference}` : ""}
                 </span>
               </span>
-              <span className="text-sm font-bold tabular-nums text-foreground">{rupees(row.amount)}</span>
+              <span className="text-sm font-bold tabular-nums text-foreground">
+                {rupees(row.chargeAmount)}
+                {row.chargeAmount < row.amount ? (
+                  <span className="block text-xs font-medium text-muted-foreground">of {rupees(row.amount)}</span>
+                ) : null}
+              </span>
               <span className="inline-flex items-center gap-1 text-sm font-semibold text-brand-teal">
                 Finish &amp; publish <ArrowRight className="size-4" />
               </span>

@@ -76,6 +76,64 @@ export const MUTABLE_CATEGORIES: { description: string; label: string; value: st
   },
 ];
 
+/**
+ * The emails a person can turn off. Mirrors `EMAIL_TOPICS` in
+ * `apps/web/src/modules/notifications/email-topics.ts` — change both.
+ *
+ * Grouped by who receives them: a resident is never mailed payment summaries,
+ * so the screen shows only the set that matches the account's role. Receipts,
+ * sign-in codes, plan billing and safety mail are not here because they cannot
+ * be turned off.
+ */
+export type EmailAudience = "resident" | "staff";
+
+export const EMAIL_TOPICS: {
+  audience: EmailAudience;
+  description: string;
+  label: string;
+  value: string;
+}[] = [
+  {
+    audience: "resident",
+    description: "Before and after your hostel fee is due",
+    label: "Rent reminders",
+    value: "RENT_REMINDERS",
+  },
+  {
+    audience: "resident",
+    description: "Urgent notices from your hostel",
+    label: "Notices",
+    value: "NOTICES",
+  },
+  {
+    audience: "resident",
+    description: "When a complaint you raised is resolved or rejected",
+    label: "Complaint updates",
+    value: "COMPLAINT_UPDATES",
+  },
+  {
+    audience: "staff",
+    description: "Morning summary of payments to verify and received, and unpaid fees",
+    label: "Payment summaries",
+    value: "PAYMENT_SUMMARY",
+  },
+  {
+    audience: "staff",
+    description: "New complaints, and ones past their deadline",
+    label: "Complaint alerts",
+    value: "COMPLAINT_ALERTS",
+  },
+  {
+    audience: "staff",
+    description: "Residents away longer than your alert limit",
+    label: "Attendance alerts",
+    value: "ATTENDANCE_ALERTS",
+  },
+];
+
+/** `GET /account/email-preferences`. */
+export type EmailPreference = { hasEmail: boolean; mutedTopics: string[] };
+
 /** `480` → `"08:00"`. */
 export function formatMinutes(minutes: number): string {
   const safe = ((Math.round(minutes) % 1440) + 1440) % 1440;

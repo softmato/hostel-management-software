@@ -42,6 +42,12 @@ const teamPrepaymentSchema = new Schema(
     cycleMonths: { required: true, type: Number },
     /** Whole rupees, priced on the server when the row was opened. */
     amount: { min: 0, required: true, type: Number },
+    /**
+     * What the owner pays online now, when the agent set a part amount; the
+     * Softmato document is raised for this, and the rest becomes the due at
+     * publish. `null` means the whole `amount`.
+     */
+    chargeAmount: { default: null, min: 1, type: Number },
     billedTo: {
       email: { default: null, trim: true, type: String },
       hostelName: { default: null, trim: true, type: String },

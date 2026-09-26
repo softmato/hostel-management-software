@@ -31,6 +31,8 @@ const hostelSettingsSchema = new Schema(
         /** Absence streak (days) that raises an AttendanceAlert. */
         absenceAlertDays: { default: 14, max: 90, min: 1, type: Number },
         enabled: { default: false, type: Boolean },
+        /** Last time `enabled` went false → true; the absence alert counts from here. */
+        enabledAt: Date,
         insideZoneRadiusMeters: { default: 50, max: 500, min: 10, type: Number },
         nearbyZoneRadiusMeters: { default: 200, max: 2000, min: 20, type: Number },
         /** How long raw AttendanceLog rows are kept before the purge job. */

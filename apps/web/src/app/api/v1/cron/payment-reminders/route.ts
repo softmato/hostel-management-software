@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { errorResponse, handleRouteError, successResponse } from "@/lib/api-response";
 import { validateCronRequest } from "@/lib/cron-auth";
 import { runPaymentReminders } from "@/modules/finance/dunning.service";
+import { sendAdminPaymentDigest } from "@/modules/finance/finance-notify";
 
 export const runtime = "nodejs";
 // Emails are external I/O; a large hostel roster needs more than the default.
@@ -12,6 +13,9 @@ export const maxDuration = 60;
  * Cron: daily payment reminders and overdue chases (PHASES.md §3.1).
  * Idempotent within a day — reminders fire on an exact day offset from the due
  * date, overdue chases on a decaying schedule.
+ *
+ * Then the hostel admins' one payments email of the day
+ * (`sendAdminPaymentDigest`).
  *
  * Residents' rent only. Plan payment reminders, and the resident fee pushes,
  * are automatic rows on the superadmin Push tab, sent by `platform-push`.
@@ -31,7 +35,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return successResponse(await runPaymentReminders(), "Payment reminders processed");
+    const reminders = await runPaymentReminders();
+    const digest = await sendAdminPaymentDigest();
+
+    return successResponse({ ...reminders, digest }, "Payment reminders processed");
   } catch (error) {
     return handleRouteError(error);
   }

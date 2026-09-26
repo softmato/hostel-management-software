@@ -2,6 +2,11 @@ import type { Types } from "mongoose";
 
 import { outboundUrl } from "@/lib/site";
 import { Role } from "@/lib/roles";
+import {
+  emailPreferenceLinks,
+  emailTopicMuted,
+} from "@/modules/notifications/email-preference.service";
+import type { EmailTopic } from "@/modules/notifications/email-topics";
 import { HostelMemberModel } from "@hostel/db/models/HostelMember";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { ResidentModel } from "@hostel/db/models/Resident";
@@ -213,6 +218,10 @@ export async function resolveActiveResidentRecipients(
 /**
  * Fire-and-forget transactional send. Notifications must never fail the action
  * that triggered them (RULES.md), so delivery problems are logged and swallowed.
+ *
+ * A `topic` makes the mail optional: it is skipped for an address that turned
+ * the topic off, and carries an unsubscribe link and header when it goes. Leave
+ * it off for mail a person cannot refuse — credentials, receipts, SOS.
  */
 export async function sendNotificationEmail(input: {
   action: string;
@@ -225,13 +234,19 @@ export async function sendNotificationEmail(input: {
   html: string;
   subject: string;
   to: string;
+  topic?: EmailTopic;
 }) {
   try {
+    if (input.topic && (await emailTopicMuted(input.to, input.topic))) {
+      return false;
+    }
+
     const delivery = await sendEmail({
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       html: input.html,
       subject: input.subject,
       to: input.to,
+      ...(input.topic ? { unsubscribe: emailPreferenceLinks(input.to, input.topic) } : {}),
     });
 
     if (!delivery.sent) {

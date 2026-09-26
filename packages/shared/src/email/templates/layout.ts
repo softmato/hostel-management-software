@@ -72,6 +72,12 @@ function preheaderHtml(text: string) {
 }
 
 /**
+ * Where `sendEmail` puts the unsubscribe line in the footer. An HTML comment, so
+ * mail sent without one shows nothing.
+ */
+export const UNSUBSCRIBE_SLOT = "<!--unsubscribe-->";
+
+/**
  * Shared HTML shell for every transactional email (EMAIL_SYSTEM.md).
  * `bodyHtml` is trusted template markup; interpolate user-provided values
  * through escapeHtml() before passing them in.
@@ -128,7 +134,7 @@ export function emailLayout(options: {
             <tr>
               <td style="padding:20px 4px 0;font-family:${FONT};font-size:12px;line-height:18px;color:${COLOR.muted};">
                 Sent by ${brand} · Powered by Softmato<br>
-                If you were not expecting this email, you can safely ignore it.
+                If you were not expecting this email, you can safely ignore it.${UNSUBSCRIBE_SLOT}
               </td>
             </tr>
           </table>
@@ -219,6 +225,59 @@ export function detailsTable(rows: DetailRow[]) {
     .join("");
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 8px;border-top:1px solid ${COLOR.border};border-bottom:1px solid ${COLOR.border};">${body}</table>`;
+}
+
+export type ListColumn = {
+  /** Right-align numbers and amounts, so a column of figures lines up. */
+  align?: "right";
+  label: string;
+};
+
+/**
+ * A plain list with a header row — one row per resident, payment or complaint.
+ * For mail that reports several things at once, where a sentence per item would
+ * be a wall of text. `total` adds a bold last row. Every cell is escaped here.
+ */
+export function listTable(columns: ListColumn[], rows: string[][], total?: string[]) {
+  if (rows.length === 0) {
+    return "";
+  }
+
+  const cell = (value: string, index: number, style: string) => {
+    const align = columns[index]?.align === "right" ? "right" : "left";
+    const pad = index === 0 ? "10px 0" : "10px 0 10px 12px";
+
+    return `<td align="${align}" style="padding:${pad};font-family:${FONT};font-size:14px;line-height:20px;${style}">${escapeHtml(value)}</td>`;
+  };
+  const head = `<tr>${columns
+    .map((column, index) =>
+      cell(column.label, index, `font-size:12px;line-height:16px;color:${COLOR.muted};padding-top:0;`),
+    )
+    .join("")}</tr>`;
+  const body = rows
+    .map(
+      (row) =>
+        `<tr>${row
+          .map((value, index) =>
+            cell(value, index, `border-top:1px solid ${COLOR.border};color:${COLOR.strong};`),
+          )
+          .join("")}</tr>`,
+    )
+    .join("");
+  const foot = total
+    ? `<tr>${total
+        .map((value, index) =>
+          cell(value, index, `border-top:1px solid ${COLOR.border};font-weight:700;color:${COLOR.strong};`),
+        )
+        .join("")}</tr>`
+    : "";
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 20px;border-bottom:1px solid ${COLOR.border};">${head}${body}${foot}</table>`;
+}
+
+/** A small bold line above a table, when one email has more than one list. */
+export function sectionTitle(text: string) {
+  return `<p style="margin:24px 0 4px;font-family:${FONT};font-size:15px;line-height:22px;font-weight:700;color:${COLOR.strong};">${escapeHtml(text)}</p>`;
 }
 
 export type ComparisonRow = {

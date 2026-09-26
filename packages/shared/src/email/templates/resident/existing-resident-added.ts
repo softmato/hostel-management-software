@@ -1,9 +1,14 @@
 import { PLATFORM_NAME } from "../../../brand/brand";
 import {
   ctaButton,
+  detailsTable,
   emailLayout,
   escapeHtml,
+  listTable,
   paragraph,
+  sectionTitle,
+  smallPrint,
+  textLink,
   type EmailContent,
 } from "../layout";
 
@@ -45,77 +50,60 @@ export function existingResidentAddedEmail(input: {
   const rupees = (value: number) => `Rs ${value.toLocaleString("en-IN")}`;
   const total = input.dues.reduce((sum, due) => sum + due.amount, 0);
 
-  const facts = [
-    `Hostel: <strong>${escapeHtml(input.hostelName)}</strong>`,
-    `Room type: <strong>${escapeHtml(input.roomType)}</strong>`,
-    input.monthlyRent ? `Monthly rent: <strong>${rupees(input.monthlyRent)}</strong>` : "",
-    input.depositPaid > 0 ? `Deposit paid: <strong>${rupees(input.depositPaid)}</strong>` : "",
-  ].filter(Boolean);
-
   const money =
     total === 0
-      ? paragraph(
-          `Your rent is paid till <strong>${escapeHtml(input.paidTill)}</strong>. Nothing to pay now. Your next bill is for <strong>${escapeHtml(input.nextBillMonth)}</strong>.`,
-        )
+      ? [
+          sectionTitle("Nothing to pay now"),
+          detailsTable([
+            { label: "Paid till", value: input.paidTill },
+            { label: "Next bill", value: input.nextBillMonth },
+          ]),
+        ].join("\n")
       : [
-          paragraph(
-            `Please pay <strong>${rupees(total)}</strong> by <strong>${escapeHtml(input.payBy)}</strong>.`,
+          sectionTitle(`To pay by ${input.payBy}`),
+          listTable(
+            [{ label: "Bill" }, { label: "Code" }, { align: "right", label: "Amount" }],
+            input.dues.map((due) => [due.label, due.code ?? "—", rupees(due.amount)]),
+            input.dues.length > 1 ? ["Total", "", rupees(total)] : undefined,
           ),
-          `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 16px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;">${input.dues
-            .map(
-              (due, index) =>
-                `<tr><td style="padding:10px 12px;${index ? "border-top:1px solid #e2e8f0;" : ""}">${escapeHtml(due.label)}${
-                  due.code
-                    ? `<br/><span style="color:#64748b;font-size:12px;">Code ${escapeHtml(due.code)}</span>`
-                    : ""
-                }</td><td align="right" style="padding:10px 12px;font-weight:600;${index ? "border-top:1px solid #e2e8f0;" : ""}">${rupees(due.amount)}</td></tr>`,
-            )
-            .join("")}</table>`,
-          paragraph(
-            "Write the code when you pay, so the hostel knows which bill you paid.",
-          ),
+          smallPrint("Write the code when you pay, so the hostel knows which bill you paid."),
         ].join("\n");
 
   const access = input.hasAccount
     ? [
-        paragraph(
-          `Log in to ${PLATFORM_NAME} with this email and tap <strong>Continue</strong>.`,
-        ),
         ctaButton(input.dashboardUrl, "Open my account"),
+        smallPrint(`Log in to ${PLATFORM_NAME} with this email.`),
       ]
     : input.activation
       ? [
-          paragraph(
-            `Start your ${PLATFORM_NAME} account to see bills, pay rent, get notices and more. This link works till ${escapeHtml(input.activation.expiresOn)}.`,
-          ),
           ctaButton(input.activation.url, "Start my account"),
+          smallPrint(`This link works till ${escapeHtml(input.activation.expiresOn)}.`),
         ]
-      : [paragraph("Ask the hostel for your activation code to use the app.")];
+      : [smallPrint("To use the app, ask the hostel for your code.")];
 
   return {
     category: "info",
     subject:
       total === 0
-        ? `Good news! ${input.hostelName} is now on ${PLATFORM_NAME}`
+        ? `${input.hostelName} is now on ${PLATFORM_NAME}`
         : `${input.hostelName} is now on ${PLATFORM_NAME} — please pay ${rupees(total)}`,
     html: emailLayout({
       heading: `Your hostel is now on ${PLATFORM_NAME}`,
       bodyHtml: [
         paragraph(
-          `Hi ${escapeHtml(input.residentName)}, good news! <strong>${escapeHtml(input.hostelName)}</strong> now uses ${PLATFORM_NAME}. Here are your details.`,
+          `Hi ${escapeHtml(input.residentName)}, <strong>${escapeHtml(input.hostelName)}</strong> now uses ${PLATFORM_NAME}. You can pay rent and get receipts in the app.`,
         ),
-        `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;">${facts
-          .map((fact) => `<li>${fact}</li>`)
-          .join("")}</ul>`,
+        detailsTable([
+          { label: "Room type", value: input.roomType },
+          { label: "Monthly rent", value: input.monthlyRent ? rupees(input.monthlyRent) : "" },
+          { label: "Deposit paid", value: input.depositPaid > 0 ? rupees(input.depositPaid) : "" },
+        ]),
         money,
-        paragraph(
-          `Now you can pay rent in the ${PLATFORM_NAME} app or website and get a receipt. Every payment with its code also puts you in the <a href="${escapeHtml(input.offerProgramUrl)}" style="color:#0f766e;">Resident Offer Program</a>. Gifts are coming for lucky residents.`,
-        ),
-        paragraph(
-          "You can also see your bills, notices, meals and complaints any time.",
-        ),
         ...access,
-        paragraph("If anything here is wrong, tell the hostel."),
+        smallPrint(
+          `Every payment made with its code counts for the ${textLink(input.offerProgramUrl, "Resident Offer Program")}.`,
+        ),
+        smallPrint("Something wrong? Tell the hostel."),
       ].join("\n"),
     }),
   };

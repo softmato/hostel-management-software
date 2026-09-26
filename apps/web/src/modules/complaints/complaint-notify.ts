@@ -4,6 +4,7 @@ import { REALTIME_TOPIC } from "@/lib/realtime/channels";
 import { publishResourceChange } from "@/lib/realtime/server";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { getOperationsConfig } from "@/modules/platform-config/operations-config";
+import { newComplaintEmail } from "@hostel/shared/email/templates/hostel/staff-alerts";
 import { complaintResolvedEmail } from "@hostel/shared/email/templates/resident/complaint-resolved";
 import { complaintStatusUpdatedEmail } from "@hostel/shared/email/templates/resident/complaint-status-updated";
 import { ResidentModel } from "@hostel/db/models/Resident";
@@ -38,15 +39,23 @@ export async function notifyAdminsOfNewComplaint(input: {
     ]);
     const author = input.isAnonymous ? "An anonymous resident" : input.residentName;
     const body = `${author} filed a ${input.category.toLowerCase()} complaint: ${input.title}`;
+    const email = newComplaintEmail({
+      complaintsUrl: appUrl(ADMIN_COMPLAINTS_URL),
+      from: author,
+      hostelName,
+      title: input.title,
+      type: input.category,
+    });
 
     await Promise.allSettled(
       admins.flatMap((admin) => {
         const jobs: Promise<unknown>[] = [
           sendNotificationEmail({
             action: "complaint_created",
-            html: `<p>${body}</p><p><a href="${appUrl(ADMIN_COMPLAINTS_URL)}">Open the complaint queue</a></p>`,
-            subject: `New complaint: ${input.title} — ${hostelName}`,
+            html: email.html,
+            subject: email.subject,
             to: admin.email,
+            topic: "COMPLAINT_ALERTS",
           }),
         ];
 
@@ -154,7 +163,10 @@ export async function notifyResidentOfComplaintStatus(input: {
     const complaintsUrl = appUrl(RESIDENT_COMPLAINTS_URL);
     const jobs: Promise<unknown>[] = [];
 
-    if (contact && config.sendComplaintEmails) {
+    // Email only once the complaint is settled; "in progress" is a bell row.
+    const settled = input.status === "RESOLVED" || input.status === "REJECTED";
+
+    if (contact && settled && config.sendComplaintEmails) {
       const email =
         input.status === "RESOLVED"
           ? complaintResolvedEmail({
@@ -177,6 +189,7 @@ export async function notifyResidentOfComplaintStatus(input: {
           html: email.html,
           subject: email.subject,
           to: contact.email,
+          topic: "COMPLAINT_UPDATES",
         }),
       );
     }

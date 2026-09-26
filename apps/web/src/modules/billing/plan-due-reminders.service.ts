@@ -36,8 +36,8 @@ import type { EmailContent } from "@hostel/shared/email/templates/layout";
  * Two automatic rows on the superadmin Push tab run this — 08:00 and 21:00
  * Nepal time (`AUTOMATIC_PUSHES` in `platform-push.service.ts`). A week and five
  * days before the due day the morning run reminds once; from three days before,
- * both runs remind, every day, until the bill is paid. The morning run also
- * emails the owner, so an inbox gets one a day while the push goes twice.
+ * both runs remind, every day, until the bill is paid. The email is sparser than
+ * the push — see {@link planEmailsToday}.
  *
  * | Channel | Goes to | Opens |
  * |---|---|---|
@@ -131,6 +131,17 @@ export function planRemindsToday(input: {
   return remindsToday(input.daysUntilDue, input.earlyDays);
 }
 
+/**
+ * Whether the morning run's reminder also goes by email. **Pure.**
+ *
+ * A week out, three days out, the due day, then once a week while it stays
+ * unpaid. The push already goes twice a day from three days out; a daily email
+ * on top of it is what made owners feel hounded.
+ */
+export function planEmailsToday(daysUntilDue: number) {
+  return daysUntilDue === 7 || daysUntilDue === 3 || (daysUntilDue <= 0 && daysUntilDue % 7 === 0);
+}
+
 export async function sendPlanDueReminders(input: {
   earlyDays: readonly number[];
   /** The morning run emails the owner too. */
@@ -170,10 +181,11 @@ export async function sendPlanDueReminders(input: {
       continue;
     }
 
+    const daysUntilDue = hostelDaysBetween(now, invoice.dueAt);
     const due = planRemindsToday({
       claimInReview: context.inReview.has(key),
       daysSinceIssue: hostelDaysBetween(invoice.issuedAt ?? invoice.createdAt ?? now, now),
-      daysUntilDue: hostelDaysBetween(now, invoice.dueAt),
+      daysUntilDue,
       earlyDays: input.earlyDays,
       owingWhileLive: context.pastDue.has(invoice.subscriptionId.toString()),
     });
@@ -183,7 +195,7 @@ export async function sendPlanDueReminders(input: {
     }
 
     const owner = hostel.ownerId ? context.users.get(hostel.ownerId.toString()) : undefined;
-    const to = input.email
+    const to = input.email && planEmailsToday(daysUntilDue)
       ? owner?.email || hostel.contact?.email || invoice.billedTo?.email || ""
       : "";
     const admins = isLive(hostel) ? (context.admins.get(hostelKey) ?? []) : [];

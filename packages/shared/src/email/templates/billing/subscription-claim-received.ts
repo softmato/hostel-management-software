@@ -1,4 +1,12 @@
-import { emailLayout, escapeHtml, paragraph, type EmailContent } from "../layout";
+import {
+  detailsTable,
+  emailLayout,
+  escapeHtml,
+  greeting,
+  paragraph,
+  smallPrint,
+  type EmailContent,
+} from "../layout";
 import { formatRupees } from "./subscription-invoice";
 
 /**
@@ -43,40 +51,25 @@ export function subscriptionClaimReceivedEmail(input: {
   /** The day the plan is paid up to, already formatted for a reader. */
   worksUntil?: string | null;
 }): EmailContent {
-  const greeting = input.ownerName
-    ? `Hi ${escapeHtml(input.ownerName)},`
-    : "Hi,";
-
   return {
     category: "billing",
     subject: `We got your payment photo — ${formatRupees(input.amount)}`,
     html: emailLayout({
       heading: "We got your payment photo",
       bodyHtml: [
-        paragraph(greeting),
-        paragraph(
-          `Thank you. We got your payment photo for <strong>${formatRupees(input.amount)}</strong> (<strong>${escapeHtml(input.planName)}</strong>, <strong>${escapeHtml(input.hostelName)}</strong>).`,
-        ),
-        paragraph(
-          [
-            `Bill no.: <strong>${escapeHtml(input.invoiceNumber)}</strong>`,
-            input.reference
-              ? `Your reference: <strong>${escapeHtml(input.reference)}</strong>`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("<br/>"),
-        ),
-        paragraph(
-          "We will check it in <strong>1–2 working days</strong> and email you.",
-        ),
-        paragraph(
+        greeting(input.ownerName),
+        paragraph("Thank you. We will check it in 1–2 working days and email you."),
+        detailsTable([
+          { emphasis: true, label: "Amount", value: formatRupees(input.amount) },
+          { label: "Plan", value: input.planName },
+          { label: "Hostel", value: input.hostelName },
+          { label: "Bill number", value: input.invoiceNumber },
+          { label: "Your reference", value: input.reference ?? "" },
+        ]),
+        smallPrint(
           input.worksUntil
-            ? `Your plan keeps working until <strong>${escapeHtml(input.worksUntil)}</strong>.`
+            ? `Your plan keeps working until ${escapeHtml(input.worksUntil)}.`
             : "Your plan keeps working while we check.",
-        ),
-        paragraph(
-          "Online payment is coming soon. Thank you for your patience.",
         ),
       ].join("\n"),
     }),

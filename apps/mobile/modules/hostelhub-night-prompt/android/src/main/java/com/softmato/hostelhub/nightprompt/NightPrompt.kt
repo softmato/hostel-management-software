@@ -82,6 +82,10 @@ internal object NightPrompt {
     return calendar.timeInMillis - NEPAL_OFFSET_MINUTES * 60_000L
   }
 
+  /** How long a line about tonight may stay in the shade, or `null` if unknown or over. */
+  fun millisUntilNightEnds(night: String?): Long? =
+    nightEndsAtMillis(night)?.minus(System.currentTimeMillis())?.takeIf { it > 0 }
+
   fun isoNow(): String =
     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
       .apply { timeZone = TimeZone.getTimeZone("UTC") }
@@ -296,15 +300,20 @@ internal object NightPromptStore {
     prefs(context).edit().putString(KEY_PENDING, next.toString()).commit()
   }
 
-  /** Hands everything to the app's own queue, which then owns sending it. */
+  /** Whether an answer about `night` is still waiting to be sent — so it is not asked again. */
   @Synchronized
-  fun takeAll(context: Context): JSONArray {
+  fun hasPendingFor(context: Context, night: String): Boolean {
     val current = pending(context)
 
-    prefs(context).edit().putString(KEY_PENDING, "[]").commit()
-
-    return current
+    return (0 until current.length()).any { current.optJSONObject(it)?.optString("night") == night }
   }
+
+  /**
+   * Answers the receiver is posting right now, by `answeredAt`. In memory on
+   * purpose: the retry job skips these while this process is alive, and after a
+   * kill the set is empty and the job sends them.
+   */
+  val inFlight: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
 }
 
 internal enum class PostResult {

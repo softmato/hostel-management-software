@@ -22,7 +22,16 @@ class NightPromptMessagingService : ExpoFirebaseMessagingService() {
     }
 
     if (prompt != null) {
-      NightPromptNotifier.show(applicationContext, prompt)
+      /*
+       * Answered already, but not yet sent — an offline answer, and this round
+       * was queued at FCM while the phone was away. Not asked again: the push
+       * arriving means the phone is online, so the answer goes now instead.
+       */
+      if (prompt.night != null && NightPromptStore.hasPendingFor(applicationContext, prompt.night)) {
+        NightPromptRetryJob.schedule(applicationContext)
+      } else {
+        NightPromptNotifier.show(applicationContext, prompt)
+      }
       return
     }
 

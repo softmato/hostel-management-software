@@ -17,6 +17,10 @@ import { ResidentModel } from "@hostel/db/models/Resident";
 import { paymentDueReminderEmail } from "@hostel/shared/email/templates/payment/payment-due-reminder";
 import type { ReminderStage } from "@hostel/shared/email/templates/payment/payment-due-reminder";
 import { paymentOverdueEmail } from "@hostel/shared/email/templates/payment/payment-overdue";
+import {
+  type PaymentLine,
+  unpaidFeesEmail,
+} from "@hostel/shared/email/templates/hostel/staff-alerts";
 
 /**
  * Reminders and overdue chases (target §10.3, plan item 5.2).
@@ -262,6 +266,11 @@ export async function runPaymentReminders(now = new Date()): Promise<PaymentRemi
       };
 
       const hostelNames = new Map<string, string>();
+      // One rent email per resident per run, however many of their bills moved a
+      // rung today; the bell still gets a row per bill.
+      const emailedResidents = new Set<string>();
+      // Owners hear about every resident who ran out of reminders in one email.
+      const escalations = new Map<string, PaymentLine[]>();
       let cursor: Types.ObjectId | null = null;
 
       for (;;) {
@@ -370,17 +379,35 @@ export async function runPaymentReminders(now = new Date()): Promise<PaymentRemi
         // hostel with three hundred overdue invoices ran three hundred round
         // trips end to end and routinely hit the function timeout — at which
         // point the tail of the list was silently never contacted.
+        // Late notices first, so a resident's one email is about what is overdue.
+        // ponytail: per batch — bills of one resident split across batches keep id order.
+        planned.sort(
+          (a, b) => Number(a.action.kind === "reminder") - Number(b.action.kind === "reminder"),
+        );
+
         const outcomes = await Promise.all(
-          planned.map((item) =>
-            deliver({
+          planned.map((item) => {
+            const residentKey = item.resident._id.toString();
+            // The three-days-out rung is bell only: the fee push already goes
+            // twice a day from then on.
+            const email =
+              config.sendPaymentEmails &&
+              item.action.stage !== "REMINDED_SOON" &&
+              !emailedResidents.has(residentKey);
+
+            if (email) {
+              emailedResidents.add(residentKey);
+            }
+
+            return deliver({
               action: item.action,
-              config,
+              email,
               hostelName: hostelNames.get(item.invoice.hostelId.toString()) ?? "",
               invoice: item.invoice,
               outstanding: item.outstanding,
               resident: item.resident,
-            }),
-          ),
+            });
+          }),
         );
 
         for (let index = 0; index < planned.length; index += 1) {
@@ -422,6 +449,16 @@ export async function runPaymentReminders(now = new Date()): Promise<PaymentRemi
             totals.overdueNotified += 1;
             recorder.count("overdueNotified");
           } else if (item.action.kind === "escalate") {
+            const hostelKey = item.invoice.hostelId.toString();
+
+            escalations.set(hostelKey, [
+              ...(escalations.get(hostelKey) ?? []),
+              {
+                amount: item.outstanding,
+                month: item.invoice.period,
+                name: `${item.resident.firstName} ${item.resident.lastName}`.trim(),
+              },
+            ]);
             totals.escalated += 1;
             recorder.count("escalated");
             recorder.finding({
@@ -442,6 +479,14 @@ export async function runPaymentReminders(now = new Date()): Promise<PaymentRemi
         }
       }
 
+      if (config.sendPaymentEmails) {
+        await Promise.all(
+          [...escalations].map(([hostelId, residents]) =>
+            emailEscalations(hostelId, hostelNames.get(hostelId) ?? "", residents),
+          ),
+        );
+      }
+
       return totals;
     },
   );
@@ -452,13 +497,15 @@ export async function runPaymentReminders(now = new Date()): Promise<PaymentRemi
 /**
  * Sends one rung of the ladder. Returns false if nothing could be delivered.
  *
- * The in-app notification always fires; `sendPaymentEmails` gates only the email
- * (§5.5, item 0.6). A hostel with email switched off must still see its own
- * reminders in the app, which is the bug that fix was about.
+ * The in-app notification always fires; `email` gates only the email — it
+ * folds in `sendPaymentEmails` (§5.5, item 0.6). A hostel with email switched
+ * off must still see its own reminders in the app, which is the bug that fix was
+ * about.
  */
 async function deliver(input: {
   action: DunningAction;
-  config: { paymentReminderDaysBefore: number; sendPaymentEmails: boolean };
+  /** Whether this rung may email the resident. The run decides — see above. */
+  email: boolean;
   hostelName: string;
   invoice: InvoiceRow;
   outstanding: number;
@@ -477,11 +524,9 @@ async function deliver(input: {
 
     if (action.kind === "escalate") {
       return await escalateToHostel({
-        hostelName: input.hostelName,
         invoice,
         outstanding: input.outstanding,
         resident,
-        sendEmail: input.config.sendPaymentEmails,
       });
     }
 
@@ -523,9 +568,9 @@ async function deliver(input: {
       });
     }
 
-    const contact = await resolveResidentContact(resident);
+    const contact = input.email ? await resolveResidentContact(resident) : null;
 
-    if (!input.config.sendPaymentEmails || !contact) {
+    if (!contact) {
       return true;
     }
 
@@ -554,6 +599,7 @@ async function deliver(input: {
       html: email.html,
       subject: email.subject,
       to: contact.email,
+      topic: "RENT_REMINDERS",
     });
 
     return true;
@@ -573,17 +619,12 @@ async function deliver(input: {
  * wrong, and the only useful next step is a human who can knock on a door.
  */
 async function escalateToHostel(input: {
-  hostelName: string;
   invoice: InvoiceRow;
   outstanding: number;
   resident: ResidentRow;
-  sendEmail: boolean;
 }): Promise<boolean> {
   const admins = await resolveHostelAdminContacts(input.invoice.hostelId);
-  const residentName = `${input.resident.firstName} ${input.resident.lastName}`.trim();
-  const body = `${residentName} has not paid NPR ${input.outstanding.toLocaleString(
-    "en-IN",
-  )} for ${input.invoice.period ?? "an earlier period"} after ${MAX_CHASES} reminders. Automated reminders have stopped.`;
+  const body = `${escalationLine(input.resident, input.outstanding, input.invoice.period)} Automated reminders have stopped.`;
 
   await Promise.all(
     admins.map(async (admin) => {
@@ -597,17 +638,39 @@ async function escalateToHostel(input: {
           userId: admin.userId.toString(),
         });
       }
-
-      if (input.sendEmail) {
-        await sendNotificationEmail({
-          action: "payment_escalated",
-          html: `<p>${body}</p><p><a href="${appUrl("/hostel-admin/payments")}">Open payments</a></p>`,
-          subject: `Unpaid fee: ${residentName}`,
-          to: admin.email,
-        });
-      }
     }),
   );
 
   return true;
+}
+
+function escalationLine(resident: ResidentRow, outstanding: number, period?: string | null) {
+  const name = `${resident.firstName} ${resident.lastName}`.trim();
+
+  return `${name} has not paid NPR ${outstanding.toLocaleString("en-IN")} for ${
+    period ?? "an earlier period"
+  } after ${MAX_CHASES} reminders.`;
+}
+
+/** One email per admin for every resident escalated in this run. */
+async function emailEscalations(hostelId: string, hostelName: string, residents: PaymentLine[]) {
+  const admins = await resolveHostelAdminContacts(hostelId);
+  const email = unpaidFeesEmail({
+    hostelName,
+    paymentsUrl: appUrl("/hostel-admin/payments"),
+    reminders: MAX_CHASES,
+    residents,
+  });
+
+  await Promise.all(
+    admins.map((admin) =>
+      sendNotificationEmail({
+        action: "payment_escalated",
+        html: email.html,
+        subject: email.subject,
+        to: admin.email,
+        topic: "PAYMENT_SUMMARY",
+      }),
+    ),
+  );
 }

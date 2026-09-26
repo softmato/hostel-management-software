@@ -33,13 +33,18 @@ import { readApiError } from "@/lib/api-contract";
 import { endSession } from "@/lib/auth-session";
 import {
   describePreference,
+  EMAIL_TOPICS,
+  type EmailAudience,
+  type EmailPreference,
   formatMinutes,
   MUTABLE_CATEGORIES,
   type NotificationPreference,
   parseMinutes,
 } from "@/lib/notification-preferences";
 import {
+  getEmailPreference,
   getNotificationPreference,
+  updateEmailPreference,
   updateNotificationPreference,
 } from "@/lib/notification-preferences-api";
 import {
@@ -50,6 +55,7 @@ import {
 import { toastError, toastSuccess } from "@/lib/toast";
 import { setThemePreference, type ThemePreference } from "@/store/slices/uiSlice";
 import { APP_NAME } from "@/constants/branding";
+import { ROLE } from "@/constants/roles";
 
 /**
  * Settings — theme, notifications, privacy, and closing the account.
@@ -105,6 +111,13 @@ export default function SettingsScreen() {
   const showAll = !section || !(section in SETTINGS_TITLES);
   const showNotifications = showAll || section === "notifications";
   const showPrivacy = showAll || section === "privacy";
+  // Only these two roles are sent optional mail; nobody else gets the section.
+  const emailAudience: EmailAudience | null =
+    account?.role === ROLE.RESIDENT
+      ? "resident"
+      : account?.role === ROLE.HOSTEL_ADMIN
+        ? "staff"
+        : null;
 
   return (
     <Screen
@@ -167,6 +180,8 @@ export default function SettingsScreen() {
         {showAll ? <CalendarPreferenceCard /> : null}
 
         {showNotifications ? <NotificationSettings /> : null}
+
+        {showNotifications && emailAudience ? <EmailSettings audience={emailAudience} /> : null}
 
         {showPrivacy ? (
           <View>
@@ -521,6 +536,121 @@ function NotificationSettings() {
           </Text>
         </Card>
       </View>
+    </View>
+  );
+}
+
+/**
+ * Emails — which optional mail the server sends this account.
+ *
+ * Same contract as the push switches above: saved on change, optimistic, the
+ * old value back on failure. The switch reads "on = you get these", unlike the
+ * push mutes, because here the question is "do you want this email", not "should
+ * it buzz". The server writes the answer to every address the account is mailed
+ * at, and the same topics are behind the unsubscribe link in each email.
+ *
+ * Only the role's own topics are shown — a resident is never sent a payment
+ * summary. Other roles never mount this; an account with no address hides it.
+ */
+function EmailSettings({ audience }: { audience: EmailAudience }) {
+  const resource = useResource<EmailPreference>(
+    useCallback(() => getEmailPreference(), []),
+    { cacheKey: "account:email-preference" },
+  );
+  const [saving, setSaving] = useState(false);
+  const preference = resource.data;
+
+  const toggle = useCallback(
+    (topic: string, receive: boolean) => {
+      const previous = preference;
+
+      if (!previous) {
+        return;
+      }
+
+      const mutedTopics = receive
+        ? previous.mutedTopics.filter((value) => value !== topic)
+        : [...previous.mutedTopics, topic];
+
+      resource.setData((current) => (current ? { ...current, mutedTopics } : current));
+      setSaving(true);
+
+      void updateEmailPreference(mutedTopics)
+        .then((saved) => resource.setData(() => saved))
+        .catch((caught: unknown) => {
+          resource.setData(() => previous);
+          toastError("Couldn't save that", readApiError(caught));
+        })
+        .finally(() => setSaving(false));
+    },
+    [preference, resource],
+  );
+
+  if (resource.loading) {
+    return (
+      <View>
+        <SectionHeader title="Emails" />
+        <SkeletonCard rows={3} />
+      </View>
+    );
+  }
+
+  if (resource.error || !preference) {
+    return (
+      <View>
+        <SectionHeader title="Emails" />
+        <ErrorState
+          message={resource.error ?? "Your email settings could not be loaded."}
+          onRetry={resource.reload}
+        />
+      </View>
+    );
+  }
+
+  if (!preference.hasEmail) {
+    return null;
+  }
+
+  const topicIcons: Record<string, { bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
+    ATTENDANCE_ALERTS: { bg: "#34C759", icon: "location-outline" },
+    COMPLAINT_ALERTS: { bg: "#FF9500", icon: "chatbox-ellipses-outline" },
+    COMPLAINT_UPDATES: { bg: "#FF9500", icon: "chatbox-ellipses-outline" },
+    NOTICES: { bg: "#007AFF", icon: "megaphone-outline" },
+    PAYMENT_SUMMARY: { bg: "#30D158", icon: "cash-outline" },
+    RENT_REMINDERS: { bg: "#30D158", icon: "calendar-outline" },
+  };
+
+  return (
+    <View>
+      <SectionHeader subtitle="Turning one off keeps it in the app" title="Emails" />
+      <Card>
+        {EMAIL_TOPICS.filter((topic) => topic.audience === audience).map((topic, index) => {
+          const config = topicIcons[topic.value] ?? { bg: "#5856D6", icon: "mail-outline" };
+
+          return (
+            <View key={topic.value}>
+              {index > 0 ? <RowDivider inset /> : null}
+              <ListRow
+                icon={config.icon}
+                iconBgColor={config.bg}
+                right={
+                  <Toggle
+                    accessibilityLabel={`${topic.label} emails`}
+                    disabled={saving}
+                    onChange={(next) => toggle(topic.value, next)}
+                    value={!preference.mutedTopics.includes(topic.value)}
+                  />
+                }
+                subtitle={topic.description}
+                title={topic.label}
+              />
+            </View>
+          );
+        })}
+      </Card>
+      <Text className="px-1 pt-2" variant="caption">
+        Receipts, sign-in codes, billing and safety emails are always sent.
+      </Text>
     </View>
   );
 }

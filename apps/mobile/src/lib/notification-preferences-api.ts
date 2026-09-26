@@ -8,7 +8,10 @@
 
 import { api } from "@/lib/api";
 import { type ApiEnvelope, unwrap } from "@/lib/api-contract";
-import type { NotificationPreference } from "@/lib/notification-preferences";
+import type {
+  EmailPreference,
+  NotificationPreference,
+} from "@/lib/notification-preferences";
 
 export async function getNotificationPreference() {
   const response = await api.get<ApiEnvelope<{ preference: NotificationPreference }>>(
@@ -24,6 +27,23 @@ export async function updateNotificationPreference(
   const response = await api.patch<ApiEnvelope<{ preference: NotificationPreference }>>(
     "/account/notification-preferences",
     patch,
+  );
+
+  return unwrap(response).preference;
+}
+
+export async function getEmailPreference() {
+  const response = await api.get<ApiEnvelope<{ preference: EmailPreference }>>(
+    "/account/email-preferences",
+  );
+
+  return unwrap(response).preference;
+}
+
+export async function updateEmailPreference(mutedTopics: string[]) {
+  const response = await api.patch<ApiEnvelope<{ preference: EmailPreference }>>(
+    "/account/email-preferences",
+    { mutedTopics },
   );
 
   return unwrap(response).preference;

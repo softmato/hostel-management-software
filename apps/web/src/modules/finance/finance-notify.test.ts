@@ -12,6 +12,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createInAppNotification: vi.fn(),
+  eventFind: vi.fn(),
+  invoiceFind: vi.fn(),
+  receiptFind: vi.fn(),
+  residentFind: vi.fn(),
   getOperationsConfig: vi.fn(),
   renderReceiptById: vi.fn(),
   residentFindOne: vi.fn(),
@@ -41,10 +45,22 @@ vi.mock("@/modules/finance/receipt.service", () => ({
 }));
 
 vi.mock("@hostel/db/models/Resident", () => ({
-  ResidentModel: { findOne: mocks.residentFindOne },
+  ResidentModel: { find: mocks.residentFind, findOne: mocks.residentFindOne },
 }));
 
-import { notifyClaimReviewed } from "@/modules/finance/finance-notify";
+vi.mock("@hostel/db/models/PaymentEvent", () => ({
+  PaymentEventModel: { find: mocks.eventFind },
+}));
+
+vi.mock("@hostel/db/models/Receipt", () => ({
+  ReceiptModel: { find: mocks.receiptFind },
+}));
+
+vi.mock("@hostel/db/models/Invoice", () => ({
+  InvoiceModel: { find: mocks.invoiceFind },
+}));
+
+import { notifyClaimReviewed, sendAdminPaymentDigest } from "@/modules/finance/finance-notify";
 
 const hostelId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a1");
 const residentId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c1");
@@ -95,12 +111,10 @@ beforeEach(() => {
 });
 
 describe("a verified claim", () => {
-  it("emails the resident and the hostel", async () => {
+  it("emails the resident; the owner hears in the morning digest", async () => {
     await notifyClaimReviewed(verified);
 
-    expect(emailsSentTo()).toEqual(
-      expect.arrayContaining(["ram@example.test", "owner@example.test"]),
-    );
+    expect(emailsSentTo()).toEqual(["ram@example.test"]);
   });
 
   it("attaches the receipt to the resident's email", async () => {
@@ -129,16 +143,6 @@ describe("a verified claim", () => {
     expect(residentEmail.attachments).toEqual([]);
   });
 
-  it("tells the hostel even when the resident has no email on file", async () => {
-    // Two recipients answering two different questions. A resident without an
-    // address is not a reason to leave the owner wondering.
-    mocks.resolveResidentContact.mockResolvedValue(null);
-
-    await notifyClaimReviewed(verified);
-
-    expect(emailsSentTo()).toEqual(["owner@example.test"]);
-  });
-
   it("still posts the in-app notification when payment emails are off", async () => {
     // `sendPaymentEmails` is an *email* switch (item 0.6) — a hostel with it off
     // must not become a hostel where a resident's balance changes silently.
@@ -148,13 +152,6 @@ describe("a verified claim", () => {
 
     expect(mocks.createInAppNotification).toHaveBeenCalledTimes(1);
     expect(mocks.sendNotificationEmail).not.toHaveBeenCalled();
-  });
-
-  it("does not fail the approval when the owner's mail cannot be resolved", async () => {
-    mocks.resolveHostelAdminContacts.mockRejectedValue(new Error("directory down"));
-
-    await expect(notifyClaimReviewed(verified)).resolves.toBeUndefined();
-    expect(emailsSentTo()).toEqual(["ram@example.test"]);
   });
 });
 
@@ -169,5 +166,62 @@ describe("a rejected claim", () => {
     });
 
     expect(emailsSentTo()).toEqual(["ram@example.test"]);
+  });
+});
+
+describe("the admins' morning payments email", () => {
+  const otherHostel = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0a2");
+  const sitaId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0c2");
+  const invoiceId = new Types.ObjectId("64f0f0f0f0f0f0f0f0f0f0d2");
+  const rows = (value: unknown[]) => ({
+    lean: vi.fn().mockResolvedValue(value),
+    select: vi.fn().mockReturnThis(),
+  });
+
+  beforeEach(() => {
+    mocks.residentFind.mockReturnValue(
+      rows([
+        { _id: residentId, firstName: "Ram", lastName: "Thapa" },
+        { _id: sitaId, firstName: "Sita", lastName: "Rai" },
+      ]),
+    );
+    mocks.invoiceFind.mockReturnValue(rows([{ _id: invoiceId, period: "2083-05" }]));
+  });
+
+  it("lists each payment by name, month and amount — one email per hostel", async () => {
+    mocks.eventFind.mockReturnValue(
+      rows([{ amount: 8000, hostelId, invoiceId, residentId }]),
+    );
+    mocks.receiptFind.mockReturnValue(
+      rows([
+        { amount: 12000, hostelId, month: "2083-05", residentId: sitaId },
+        { amount: 9000, hostelId: otherHostel, month: "2083-05", residentId },
+      ]),
+    );
+
+    expect(await sendAdminPaymentDigest()).toEqual({ hostels: 2 });
+
+    const [first, second] = mocks.sendNotificationEmail.mock.calls.map((call) => call[0]);
+    expect(first.subject).toBe("1 payment to check — Rupak Hostel");
+    expect(first.html).toContain("To check (1)");
+    expect(first.html).toContain("Ram Thapa");
+    expect(first.html).toContain("Bhadra 2083");
+    expect(first.html).toContain("NPR 8,000");
+    expect(first.html).toContain("Received since yesterday (1)");
+    expect(first.html).toContain("Sita Rai");
+    expect(second.subject).toBe("1 payment received — Rupak Hostel");
+  });
+
+  it("stays silent when nothing is waiting or cleared, or payment emails are off", async () => {
+    mocks.eventFind.mockReturnValue(rows([]));
+    mocks.receiptFind.mockReturnValue(rows([]));
+
+    expect(await sendAdminPaymentDigest()).toEqual({ hostels: 0 });
+
+    mocks.getOperationsConfig.mockResolvedValue({ sendPaymentEmails: false });
+    mocks.eventFind.mockReturnValue(rows([{ amount: 100, hostelId, residentId }]));
+
+    expect(await sendAdminPaymentDigest()).toEqual({ hostels: 0 });
+    expect(mocks.sendNotificationEmail).not.toHaveBeenCalled();
   });
 });

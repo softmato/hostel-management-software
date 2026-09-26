@@ -370,7 +370,7 @@ export function bookingPaymentVerifiedEmail(
 ): EmailContent {
   return {
     category: "billing",
-    subject: `Thank you! We got your booking fee — ${input.booking.hostelName}`,
+    subject: `We got your booking fee — ${input.booking.hostelName}`,
     html: emailLayout({
       bodyHtml: [
         greeting(input.name),

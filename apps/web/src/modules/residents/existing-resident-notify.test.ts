@@ -92,10 +92,11 @@ describe("telling existing residents", () => {
     const email = sentEmail();
 
     expect(email.to).toBe("ram@example.com");
-    expect(email.subject).toBe("Good news! Education Light is now on HostelPalika");
-    expect(email.html).toContain("paid till <strong>Aswin 2083</strong>");
-    expect(email.html).toContain("get a receipt");
-    expect(email.html).toContain("next bill is for <strong>Kartik 2083</strong>");
+    expect(email.subject).toBe("Education Light is now on HostelPalika");
+    expect(email.html).toContain("Nothing to pay now");
+    expect(email.html).toMatch(/Paid till<\/td>[\s\S]*?>Aswin 2083</);
+    expect(email.html).toContain("get receipts");
+    expect(email.html).toMatch(/Next bill<\/td>[\s\S]*?>Kartik 2083</);
     expect(email.html).toContain("resident-activation?code=AB12CD34");
     // No account, so nothing to push to.
     expect(mocks.inApp).toHaveBeenCalledTimes(1);
@@ -117,13 +118,14 @@ describe("telling existing residents", () => {
     const email = sentEmail();
 
     expect(email.subject).toBe("Education Light is now on HostelPalika — please pay Rs 26,500");
-    expect(email.html).toContain(" by <strong>Aswin 31, 2083 BS</strong>");
+    expect(email.html).toContain("To pay by Aswin 31, 2083 BS");
 
     const order = ["Bhadra 2083 rent", "Aswin 2083 rent", "Old dues"].map((label) => email.html.indexOf(label));
 
     expect(order.every((index) => index > 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(email.html).toContain("Code EDL-1");
+    expect(email.html).toContain(">EDL-1<");
+    expect(email.html).toContain(">Rs 26,500<");
   });
 
   it("asks an existing account to confirm, without linking it or sending a setup link", async () => {

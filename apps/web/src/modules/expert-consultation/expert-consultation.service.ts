@@ -3,9 +3,10 @@ import type { z } from "zod";
 
 import { connectToDatabase } from "@/lib/db";
 import { getSiteConfigSection } from "@/modules/platform-config/site-config.service";
-import { appUrl, sendNotificationEmail } from "@/modules/residents/resident-notify";
+import { sendNotificationEmail } from "@/modules/residents/resident-notify";
 import { getResidentIdentity } from "@/modules/users/resident-identity.service";
 import { ExpertConsultationRequestModel } from "@hostel/db/models/ExpertConsultationRequest";
+import { consultationRequestEmail } from "@hostel/shared/email/templates/platform/team-requests";
 
 import type { expertConsultationCreateSchema } from "./expert-consultation.validation";
 
@@ -49,20 +50,15 @@ async function notifyTeamOfRequest(
       (row): row is [string, string] => typeof row[1] === "string" && row[1].length > 0,
     );
 
-    const html = [
-      "<p>A visitor asked for hostel-choosing help from the compare page.</p>",
-      "<table>",
-      ...detailRows.map(
-        ([label, value]) => `<tr><td><strong>${label}</strong></td><td>${value}</td></tr>`,
-      ),
-      "</table>",
-      `<p><a href="${appUrl("/contact")}">Site contact page</a></p>`,
-    ].join("");
+    const email = consultationRequestEmail({
+      details: detailRows.map(([label, value]) => ({ label, value })),
+      name: input.fullName,
+    });
 
     await sendNotificationEmail({
       action: "expert_consultation_request",
-      html,
-      subject: `New consultation request — ${input.fullName}`,
+      html: email.html,
+      subject: email.subject,
       to: identity.supportEmail,
     });
   } catch (error) {

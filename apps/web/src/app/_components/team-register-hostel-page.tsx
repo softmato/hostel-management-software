@@ -810,6 +810,8 @@ export function TeamRegisterHostelPage() {
   // Online first: Softmato confirms it on the spot. Cash waits for a second person there.
   const [method, setMethod] = useState<"CASH" | "SOFTMATO">("SOFTMATO");
   const [amount, setAmount] = useState("");
+  // A part amount to take online; `null` takes the full price, which stays the default.
+  const [onlineAmount, setOnlineAmount] = useState<string | null>(null);
   const [paymentReference, setPaymentReference] = useState("");
   const [payout, setPayout] = useState(EMPTY_PAYOUT_DRAFT);
   const handoff = useCheckoutHandoff();
@@ -950,7 +952,10 @@ export function TeamRegisterHostelPage() {
   const price = paidOnline ? paidOnline.amount : plan ? cycleTotal(plan, cycle) : 0;
   // Cash is typed in; online is only ever what Softmato confirmed.
   const collecting =
-    method === "CASH" ? (numberValue(amount) ?? 0) : (paidOnline?.amount ?? 0);
+    method === "CASH" ? (numberValue(amount) ?? 0) : (paidOnline?.chargeAmount ?? 0);
+  const onlineCharge = onlineAmount === null ? price : (numberValue(onlineAmount) ?? 0);
+  const onlineChargeValid =
+    Number.isInteger(onlineCharge) && onlineCharge > 0 && onlineCharge <= price;
   const shortfall = Math.max(0, price - collecting);
   const uploading = documents.some((doc) => doc.uploading) || photos.some((p) => p.uploading);
 
@@ -1176,6 +1181,8 @@ export function TeamRegisterHostelPage() {
         }
 
         setPrepayment(row);
+        // An open part-payment row keeps its amount, so Take payment reuses it.
+        if (row.chargeAmount < row.amount) setOnlineAmount(String(row.chargeAmount));
 
         // Paid for one plan at one price, so the form is put back on exactly that.
         if (row.status === "PAID") {
@@ -2031,7 +2038,7 @@ export function TeamRegisterHostelPage() {
    * plan. Softmato brings the agent back to `?prepayment=<id>`.
    */
   function takeOnlinePayment() {
-    if (!plan) return;
+    if (!plan || !onlineChargeValid) return;
 
     writeDraft();
     void handoff.start({
@@ -2045,6 +2052,7 @@ export function TeamRegisterHostelPage() {
         ownerName: ownerName.trim(),
         phone: phone.trim(),
         planId: plan.id,
+        ...(onlineAmount !== null ? { amount: onlineCharge } : {}),
         ...(prepaymentId ? { prepaymentId } : {}),
       },
       endpoint: "/api/v1/team/prepayments",
@@ -3274,7 +3282,7 @@ export function TeamRegisterHostelPage() {
                       <input
                         className="input-field w-full cursor-not-allowed bg-muted/40 font-semibold tabular-nums"
                         readOnly
-                        value={rupees(paidOnline.amount)}
+                        value={rupees(paidOnline.chargeAmount)}
                       />
                     </Field>
                     <Field hint="From Softmato's receipt." label="Reference" name="paymentReference">
@@ -3292,16 +3300,47 @@ export function TeamRegisterHostelPage() {
                         ? "Not paid yet. If the owner already paid, check again."
                         : "Checkout opens on this screen with a QR the owner scans from their banking app or wallet. You come back here once it is paid."}
                     </p>
+                    {plan && onlineAmount !== null ? (
+                      <div className="mt-3 max-w-xs">
+                        <Field
+                          hint={`Part of the ${rupees(price)} plan price. The rest becomes the owner's due.`}
+                          label="Amount to take online"
+                          name="onlineAmount"
+                        >
+                          <input
+                            className="input-field w-full tabular-nums"
+                            inputMode="numeric"
+                            onChange={(event) => setOnlineAmount(event.target.value)}
+                            placeholder={String(price)}
+                            value={onlineAmount}
+                          />
+                        </Field>
+                        {onlineAmount && !onlineChargeValid ? (
+                          <p className="mt-1 text-xs font-medium text-destructive">
+                            Whole rupees, from 1 to {rupees(price)}.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         className="inline-flex items-center gap-2 rounded-lg bg-brand-teal px-4 py-2.5 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-60"
-                        disabled={!plan || handoff.busy}
+                        disabled={!plan || handoff.busy || !onlineChargeValid}
                         onClick={takeOnlinePayment}
                         type="button"
                       >
                         <QrCode className="size-4" />
-                        {plan ? `Take payment · ${rupees(price)}` : "Pick a plan first"}
+                        {plan ? `Take payment · ${rupees(onlineCharge)}` : "Pick a plan first"}
                       </button>
+                      {plan ? (
+                        <button
+                          className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-brand-teal/40"
+                          onClick={() => setOnlineAmount((current) => (current === null ? "" : null))}
+                          type="button"
+                        >
+                          {onlineAmount === null ? "Custom amount" : "Full price"}
+                        </button>
+                      ) : null}
                       {prepayment?.status === "OPEN" ? (
                         <button
                           className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition hover:border-brand-teal/40"

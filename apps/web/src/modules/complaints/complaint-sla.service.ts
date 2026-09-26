@@ -9,6 +9,7 @@ import {
   resolveHostelAdminContacts,
   sendNotificationEmail,
 } from "@/modules/residents/resident-notify";
+import { overdueComplaintsEmail } from "@hostel/shared/email/templates/hostel/staff-alerts";
 
 type OverdueComplaint = {
   _id: Types.ObjectId;
@@ -73,12 +74,15 @@ export async function runComplaintSlaCheck(now = new Date()) {
         continue;
       }
 
-      const lines = complaints
-        .map(
-          (complaint) =>
-            `<li>${complaint.title} (${complaint.category.toLowerCase()}) — ${hoursLate(complaint.slaDueAt, now)}h past due</li>`,
-        )
-        .join("");
+      const email = overdueComplaintsEmail({
+        complaints: complaints.map((complaint) => ({
+          hoursLate: hoursLate(complaint.slaDueAt, now),
+          title: complaint.title,
+          type: complaint.category,
+        })),
+        complaintsUrl: appUrl("/hostel-admin/complaints"),
+        hostelName,
+      });
       const body = `${complaints.length} complaint${complaints.length === 1 ? "" : "s"} passed the response deadline.`;
 
       await Promise.allSettled(
@@ -86,9 +90,10 @@ export async function runComplaintSlaCheck(now = new Date()) {
           const jobs: Promise<unknown>[] = [
             sendNotificationEmail({
               action: "complaint_sla_breached",
-              html: `<p>${body}</p><ul>${lines}</ul><p><a href="${appUrl("/hostel-admin/complaints")}">Open the complaint queue</a></p>`,
-              subject: `${complaints.length} overdue complaint${complaints.length === 1 ? "" : "s"} — ${hostelName}`,
+              html: email.html,
+              subject: email.subject,
               to: admin.email,
+              topic: "COMPLAINT_ALERTS",
             }),
           ];
 

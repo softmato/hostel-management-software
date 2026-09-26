@@ -6,6 +6,7 @@ import { getOpenFeeSchedule } from "@/modules/finance/fee-schedule.service";
 import { sendNotificationEmail } from "@/modules/residents/resident-notify";
 import { HostelModel } from "@hostel/db/models/Hostel";
 import { UserModel } from "@hostel/db/models/User";
+import { hostelChangeRequestEmail } from "@hostel/shared/email/templates/platform/team-requests";
 import type {
   hostelAdminProfileQuerySchema,
   hostelAdminProfileUpdateSchema,
@@ -24,7 +25,6 @@ import {
 } from "@/modules/hostels/hostel.service";
 import type { ApiPrincipal } from "@/lib/api-auth";
 import type { z } from "zod";
-import { PLATFORM_NAME } from "@hostel/shared/brand/brand";
 import { hostelCode } from "@/lib/hostel-code";
 
 type HostelAdminProfileQuery = z.infer<typeof hostelAdminProfileQuerySchema>;
@@ -297,20 +297,20 @@ export async function requestHostelProfileChange(
     requestedValue: input.requestedValue,
   });
 
+  const changeEmail = hostelChangeRequestEmail({
+    change: changeLabel,
+    hostelName: hostel.name ?? "",
+    hostelSlug: hostel.slug ?? "",
+    newValue: input.requestedValue,
+    reason: input.reason,
+  });
+
   await Promise.all(
     superadmins.map((admin) =>
       sendNotificationEmail({
         action: "hostel_change_request",
-        html: `
-          <h2>Hostel change request</h2>
-          <p><strong>Hostel:</strong> ${hostel.name} (${hostel.slug})</p>
-          <p><strong>Requested change:</strong> ${changeLabel}</p>
-          <p><strong>New value:</strong> ${input.requestedValue}</p>
-          ${input.reason ? `<p><strong>Reason:</strong> ${input.reason}</p>` : ""}
-          <p>Verify the request, apply it from the platform portal, and the update
-          email will acknowledge the hostel owner.</p>
-        `,
-        subject: `[${PLATFORM_NAME}] Change request: ${changeLabel} — ${hostel.name}`,
+        html: changeEmail.html,
+        subject: changeEmail.subject,
         to: admin.email,
       }),
     ),

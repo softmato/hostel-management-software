@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { paginationQuerySchema } from "@/lib/pagination";
+import { EMAIL_TOPIC_VALUES } from "@/modules/notifications/email-topics";
 
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, "Invalid object id.");
 
@@ -166,4 +167,8 @@ export const notificationPreferenceUpdateSchema = z.object({
   quietHoursEnd: z.number().int().min(0).max(1439).optional(),
   quietHoursStart: z.number().int().min(0).max(1439).optional(),
   timeZone: z.string().trim().min(1).max(64).optional(),
+});
+
+export const emailPreferenceUpdateSchema = z.object({
+  mutedTopics: z.array(z.enum(EMAIL_TOPIC_VALUES)).max(EMAIL_TOPIC_VALUES.length),
 });

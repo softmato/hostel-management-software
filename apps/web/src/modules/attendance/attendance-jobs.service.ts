@@ -6,6 +6,7 @@ import { AttendanceLogModel } from "@hostel/db/models/AttendanceLog";
 import { createInAppNotification } from "@/modules/notifications/notification.service";
 import { HostelSettingsModel } from "@hostel/db/models/HostelSettings";
 import { ResidentModel } from "@hostel/db/models/Resident";
+import { attendanceAlertEmail } from "@hostel/shared/email/templates/hostel/staff-alerts";
 import {
   ATTENDANCE_DEFAULTS,
   dayKey,
@@ -29,12 +30,15 @@ type SettingsRecord = {
 /**
  * Counts back from today for as long as the resident was absent. A day with no
  * reading at all counts as absent — an off phone is exactly the case the alert
- * exists for — and the streak stops at the first day they were seen.
+ * exists for — and the streak stops at the first day they were seen, or at
+ * `watchedFrom`: a day before the resident was registered (or before the hostel
+ * turned the geofence on) had nobody to read, so it is not an absence.
  */
-function absenceStreak(
+export function absenceStreak(
   zoneByDay: Map<string, AttendanceZone>,
   today: Date,
   maxDays: number,
+  watchedFrom: Date,
 ) {
   let streak = 0;
 
@@ -42,6 +46,10 @@ function absenceStreak(
     const day = new Date(today);
 
     day.setUTCDate(day.getUTCDate() - offset);
+
+    if (day < watchedFrom) {
+      break;
+    }
 
     const zone = zoneByDay.get(day.toISOString().slice(0, 10));
 
@@ -84,7 +92,15 @@ export async function runAttendanceMaintenance(now = new Date()) {
         hostelId,
         isDeleted: false,
         status: "ACTIVE",
-      }).lean<Array<{ _id: Types.ObjectId; firstName: string; lastName: string }>>();
+      }).lean<
+        Array<{
+          _id: Types.ObjectId;
+          createdAt: Date;
+          firstName: string;
+          lastName: string;
+          moveInDate: Date;
+        }>
+      >();
 
       if (residents.length === 0) {
         continue;
@@ -113,7 +129,16 @@ export async function runAttendanceMaintenance(now = new Date()) {
 
       for (const resident of residents) {
         const byDay = logsByResidentId.get(resident._id.toString()) ?? new Map();
-        const streak = absenceStreak(byDay, today, config.absenceAlertDays);
+        const watchedFrom = dayKey(
+          new Date(
+            Math.max(
+              resident.createdAt.getTime(),
+              new Date(resident.moveInDate).getTime(),
+              config.enabledAt ? new Date(config.enabledAt).getTime() : 0,
+            ),
+          ),
+        );
+        const streak = absenceStreak(byDay, today, config.absenceAlertDays, watchedFrom);
 
         if (streak < config.absenceAlertDays) {
           // Back in the building: close any alert still standing for them.
@@ -165,9 +190,11 @@ export async function runAttendanceMaintenance(now = new Date()) {
           getHostelName(hostelId),
           resolveHostelAdminContacts(hostelId),
         ]);
-        const lines = breached
-          .map((entry) => `<li>${entry.name} — ${entry.days} consecutive days</li>`)
-          .join("");
+        const email = attendanceAlertEmail({
+          attendanceUrl: appUrl("/hostel-admin/attendance"),
+          hostelName,
+          residents: breached,
+        });
         const body = `${breached.length} resident${breached.length === 1 ? " has" : "s have"} been away past the alert threshold.`;
 
         await Promise.allSettled(
@@ -175,9 +202,10 @@ export async function runAttendanceMaintenance(now = new Date()) {
             const jobs: Promise<unknown>[] = [
               sendNotificationEmail({
                 action: "attendance_alert",
-                html: `<p>${body}</p><ul>${lines}</ul><p><a href="${appUrl("/hostel-admin/attendance")}">Open the attendance dashboard</a></p>`,
-                subject: `Attendance alert — ${hostelName}`,
+                html: email.html,
+                subject: email.subject,
                 to: admin.email,
+                topic: "ATTENDANCE_ALERTS",
               }),
             ];
 
